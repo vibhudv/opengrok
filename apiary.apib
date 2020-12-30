@@ -2,9 +2,11 @@ HIFORMAT: 1A
 
 # OpenGrok
 
-OpenGrok RESTful API documentation. The following endpoints are accessible under `/api/v1`
+OpenGrok RESTful API documentation. The following endpoints are accessible under `/api/v1` with the exception of `/metrics`.
 
-Besides `/suggester` and `/search` endpoints, everything is accessible from `localhost` only.
+Besides `/suggester`, `/search` and `/metrics` endpoints, everything is accessible from `localhost` only
+unless authentication bearer tokens are configured in the web application and used via the 'Authorization' HTTP header
+(within HTTPS connection).
 
 ## Annotation [/annotation{?path}]
 
@@ -245,15 +247,30 @@ see https://docs.oracle.com/javase/8/docs/api/java/time/Duration.html#parse-java
           }
         ]
 
+## Monitoring [/metrics/prometheus]
+
+### retrieves web application metrics in Prometheus format [GET]
+
++ Response 200 (text/plain)
+
 ## Path descriptions [/system/pathdesc]
 
 ### updates path descriptions for web application [POST]
 
-+ Request (text/plain)
+This will refresh the path descriptions. The web application will store
+the descriptions in a file under data root so it is not necessary to load the path
+descriptions manually after each web application redeploy.
+
+The paths are relative to source root, starting with /.
+
++ Request (application/json)
   + Body
 
-            /foo    bar
-            /foo/foo    bar bar
+            [
+                {"path": "/foo", "description": "foo foo"},
+                {"path": "/bar", "description": "bar"}
+            ]
+
 
 + Response 204
 
@@ -268,7 +285,7 @@ web application redeploy).
 
 + Response 200 (application/json)
   + Body
-  
+
             ["foo","bar"]
 
 ### add project [POST]
@@ -433,47 +450,6 @@ The repository path is relative to source root.
                   "lineNumber":"29"
                 }]
               }
-
-## Statistics [/stats]
-
-### returns statistics [GET]
-
-+ Response 200 (application/json)
-  + Body
-  
-            {"requests_per_minute_max":2,"timing":{"authorization":9,"authorization_in_stack_default stack_of_OpenGrok":0,
-             "authorization_in_stack_default stack_positive":0,"authorization_of_OpenGrok":9,
-             "authorization_positive_of_OpenGrok":9,"root":1109,"*":1109,"authorization_in_stack_default stack_positive_of_OpenGrok":0,
-             "authorization_positive":9},"minutes":1,"timing_min":{"authorization":0,"authorization_in_stack_default stack_of_OpenGrok":0,
-             "authorization_in_stack_default stack_positive":0,"authorization_of_OpenGrok":0,
-             "authorization_positive_of_OpenGrok":0,"root":4,"*":4,"authorization_in_stack_default stack_positive_of_OpenGrok":0,
-             "authorization_positive":0},"timing_avg":{"authorization":4.5,"authorization_in_stack_default stack_of_OpenGrok":0.0,
-             "authorization_in_stack_default stack_positive":0.0,"authorization_of_OpenGrok":4.5,
-             "authorization_positive_of_OpenGrok":4.5,"root":554.5,"*":554.5,
-             "authorization_in_stack_default stack_positive_of_OpenGrok":0.0,"authorization_positive":4.5},
-             "request_categories":{"authorization":2,"authorization_in_stack_default stack_of_OpenGrok":2,
-             "authorization_in_stack_default stack_positive":2,"authorization_cache_misses":2,
-             "authorization_of_OpenGrok":2,"authorization_cache_hits":4,
-             "authorization_positive_of_OpenGrok":2,"root":2,"*":2,
-             "authorization_in_stack_default stack_positive_of_OpenGrok":2,
-             "authorization_positive":2},
-             "day_histogram":[0,0,0,0,0,0,0,0,0,0,0,0,2,0,0,0,0,0,0,0,0,0,0,0],"requests":2,
-             "requests_per_minute_min":1,"requests_per_minute":2,"requests_per_minute_avg":2.0,
-             "month_histogram":[0,0,0,2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
-             "timing_max":{"authorization":9,"authorization_in_stack_default stack_of_OpenGrok":0,
-             "authorization_in_stack_default stack_positive":0,"authorization_of_OpenGrok":9,
-             "authorization_positive_of_OpenGrok":9,"root":1105,"*":1105,
-             "authorization_in_stack_default stack_positive_of_OpenGrok":0,"authorization_positive":9}}
-
-### deletes statistics [DELETE]
-
-+ Response 204
-
-## Statistics reload [/stats/reload]
-
-### reloads statistics (useful when configuration path to statistics changed) [PUT]
-
-+ Response 204
 
 ## Suggester [/suggest{?projects,field,caret,full,defs,refs,path,hist,type}]
 

@@ -18,11 +18,13 @@
  */
 
 /*
- * Copyright (c) 2016, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.authorization;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.locks.ReadWriteLock;
@@ -31,6 +33,10 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpSession;
+
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.Timer;
+import org.opengrok.indexer.Metrics;
 import org.opengrok.indexer.configuration.Configuration;
 import org.opengrok.indexer.configuration.Group;
 import org.opengrok.indexer.configuration.Nameable;
@@ -39,7 +45,6 @@ import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.framework.PluginFramework;
 import org.opengrok.indexer.logger.LoggerFactory;
 import org.opengrok.indexer.web.Laundromat;
-import org.opengrok.indexer.web.Statistics;
 
 /**
  * Placeholder for performing authorization checks.
@@ -49,6 +54,28 @@ import org.opengrok.indexer.web.Statistics;
 public final class AuthorizationFramework extends PluginFramework<IAuthorizationPlugin> {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AuthorizationFramework.class);
+
+    private final Counter authStackReloadCounter = Metrics.getRegistry().
+            counter("authorization.stack.reload");
+    private final Counter authCacheHits = Counter.builder("authorization.cache").
+            description("authorization cache hits").
+            tag("what", "hits").
+            register(Metrics.getRegistry());
+    private final Counter authCacheMisses = Counter.builder("authorization.cache").
+            description("authorization cache misses").
+            tag("what", "misses").
+            register(Metrics.getRegistry());
+    private final Counter authSessionsInvalidated = Metrics.getRegistry().
+            counter("authorization.sessions.invalidated");
+
+    private final Timer authTimerPositive = Timer.builder("authorization.latency").
+            description("authorization latency").
+            tag("outcome", "positive").
+            register(Metrics.getRegistry());
+    private final Timer authTimerNegative = Timer.builder("authorization.latency").
+            description("authorization latency").
+            tag("outcome", "negative").
+            register(Metrics.getRegistry());
 
     /**
      * Stack of available plugins/stacks in the order of the execution.
@@ -241,18 +268,18 @@ public final class AuthorizationFramework extends PluginFramework<IAuthorization
 
     /**
      * Add a plug-in into the plug-in array.
-     *
-     * <h3>Configured plugin</h3>
-     * For plug-in that has an entry in configuration, the new plug-in is put
-     * in the place respecting the user-defined order of execution.
-     *
-     * <h3>New plugin</h3>
-     * If there is no entry in configuration for this class, the plugin is
-     * appended to the end of the plugin stack with flag <code>flag</code>
-     *
-     * <p><b>The plug-in's load method is NOT invoked at this point</b></p>
      * <p>
-     * This has the same effect as invoking
+     * <p>Configured plugin:
+     * <p>For plug-in that has an entry in configuration, the new plug-in is put
+     * in the place respecting the user-defined order of execution.
+     * <p>
+     * <p>New plugin:
+     * <p>If there is no entry in configuration for this class, the plugin is
+     * appended to the end of the plugin stack with flag <code>flag</code>
+     * <p>
+     * <p><b>The plug-in's load method is NOT invoked at this point</b>
+     * <p>
+     * <p>This has the same effect as invoking
      * {@code addPlugin(new AuthorizationEntity(stack, flag,
      * getClassName(plugin), plugin)}.
      *
@@ -331,23 +358,19 @@ public final class AuthorizationFramework extends PluginFramework<IAuthorization
 
     /**
      * Calling this function forces the framework to reload its stack.
-     *
      * <p>
-     * Plugins are taken from the pluginDirectory.</p>
-     *
+     * <p>Plugins are taken from the pluginDirectory.
      * <p>
-     * Old instances in stack are removed and new list of stack is constructed.
-     * Unload and load event is fired on each plugin.</p>
-     *
+     * <p>Old instances in stack are removed and new list of stack is constructed.
+     * Unload and load event is fired on each plugin.
      * <p>
-     * This method is thread safe with respect to the currently running
-     * authorization checks.</p>
+     * <p>This method is thread safe with respect to the currently running
+     * authorization checks.
      *
      * @see IAuthorizationPlugin#load(java.util.Map)
      * @see IAuthorizationPlugin#unload()
      * @see Configuration#getPluginDirectory()
      */
-    @SuppressWarnings({"rawtypes", "unchecked"})
     @Override
     protected void afterReload() {
         if (stack == null) {
@@ -377,12 +400,10 @@ public final class AuthorizationFramework extends PluginFramework<IAuthorization
             lock.writeLock().unlock();
         }
 
-        Statistics stats = RuntimeEnvironment.getInstance().getStatistics();
-        stats.addRequest("authorization_stack_reload");
+        authStackReloadCounter.increment();
 
         // clean the old stack
         removeAll(oldStack);
-        oldStack = null;
         loadingStack = null;
     }
 
@@ -429,43 +450,40 @@ public final class AuthorizationFramework extends PluginFramework<IAuthorization
     /**
      * Checks if the request should have an access to a resource. This method is
      * thread safe with respect to the concurrent reload of plugins.
-     *
      * <p>
-     * Internally performed with a predicate. Using cache in request
-     * attributes.</p>
-     *
-     * <h3>Order of plugin invocation</h3>
-     *
+     * <p>Internally performed with a predicate. Using cache in request
+     * attributes.
+     * <p>
+     * <p>Order of plugin invocation:
      * <p>
      * The order of plugin invocation is given by the stack and appropriate
      * actions are taken when traversing the stack with set of keywords,
-     * such as:</p>
-     *
-     * <h4>required</h4>
+     * such as:
+     * <p>
+     * <p>required:
      * Failure of such a plugin will ultimately lead to the authorization
      * framework returning failure but only after the remaining plugins have
      * been invoked.
-     *
-     * <h4>requisite</h4>
+     * <p>
+     * <p>requisite:
      * Like required, however, in the case that such a plugin returns a failure,
      * control is directly returned to the application. The return value is that
      * associated with the first required or requisite plugin to fail.
-     *
-     * <h4>sufficient</h4>
-     * If such a plugin succeeds and no prior required plugin has failed the
+     * <p>
+     * <p>sufficient
+     * <p>If such a plugin succeeds and no prior required plugin has failed the
      * authorization framework returns success to the application immediately
      * without calling any further plugins in the stack. A failure of a
      * sufficient plugin is ignored and processing of the plugin list continues
      * unaffected.
-     *
+     * <p>
      * <p>
      * Loaded plugins which do not occur in the configuration are appended to
      * the list with "required" keyword. As of the nature of the class discovery
      * this means that the order of invocation of these plugins is rather
-     * random.</p>
-     *
+     * random.
      * <p>
-     * Plugins in the configuration which have not been loaded are skipped.</p>
+     * <p>Plugins in the configuration which have not been loaded are skipped.
      *
      * @param request           request object
      * @param cache             cache
@@ -490,8 +508,6 @@ public final class AuthorizationFramework extends PluginFramework<IAuthorization
             return false;
         }
 
-        Statistics stats = RuntimeEnvironment.getInstance().getStatistics();
-
         Boolean val;
         Map<String, Boolean> m = (Map<String, Boolean>) request.getAttribute(cache);
 
@@ -499,14 +515,14 @@ public final class AuthorizationFramework extends PluginFramework<IAuthorization
             m = new TreeMap<>();
         } else if ((val = m.get(entity.getName())) != null) {
             // cache hit
-            stats.addRequest("authorization_cache_hits");
+            authCacheHits.increment();
             return val;
         }
 
-        stats.addRequest("authorization_cache_misses");
+        authCacheMisses.increment();
 
-        long time = 0;
-        boolean overallDecision = false;
+        Duration duration;
+        boolean overallDecision;
 
         lock.readLock().lock();
         try {
@@ -514,30 +530,23 @@ public final class AuthorizationFramework extends PluginFramework<IAuthorization
             HttpSession session;
             if (((session = request.getSession(false)) != null) && isSessionInvalid(session)) {
                 session.invalidate();
-                stats.addRequest("authorization_sessions_invalidated");
+                authSessionsInvalidated.increment();
             }
             request.getSession().setAttribute(SESSION_VERSION, getPluginVersion());
 
-            time = System.currentTimeMillis();
-
+            Instant start = Instant.now();
             overallDecision = performCheck(entity, pluginPredicate, skippingPredicate);
+            Instant end = Instant.now();
+            duration = Duration.between(start, end);
         } finally {
             lock.readLock().unlock();
         }
 
-        if (time > 0) {
-            time = System.currentTimeMillis() - time;
-
-            stats.addRequestTime("authorization", time);
-            stats.addRequestTime(
-                    String.format("authorization_%s", overallDecision ? "positive" : "negative"),
-                    time);
-            stats.addRequestTime(
-                    String.format("authorization_%s_of_%s", overallDecision ? "positive" : "negative", entity.getName()),
-                    time);
-            stats.addRequestTime(
-                    String.format("authorization_of_%s", entity.getName()),
-                    time);
+        // Update the timers.
+        if (overallDecision) {
+            authTimerPositive.record(duration);
+        } else {
+            authTimerNegative.record(duration);
         }
 
         m.put(entity.getName(), overallDecision);

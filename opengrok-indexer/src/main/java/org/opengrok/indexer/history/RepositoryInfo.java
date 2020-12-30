@@ -19,7 +19,7 @@
 
 /*
  * Copyright (c) 2008, 2018, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2019, Chris Fraire <cfraire@me.com>.
+ * Portions Copyright (c) 2017, 2019, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.history;
 
@@ -169,7 +169,7 @@ public class RepositoryInfo implements Serializable {
         String path;
         String originalPath = dir.getPath();
         try {
-            path = PathUtils.getRelativeToCanonical(originalPath, rootPath);
+            path = PathUtils.getRelativeToCanonical(dir.toPath(), Paths.get(rootPath));
             // OpenGrok has a weird convention that directoryNameRelative must start with a path separator,
             // as it is elsewhere directly appended to env.getSourceRootPath() and also stored as such.
             if (!path.equals(originalPath)) {

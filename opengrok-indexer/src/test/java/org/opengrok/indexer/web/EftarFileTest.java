@@ -18,70 +18,57 @@
  */
 
 /*
- * Copyright (c) 2007, 2018, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2007, 2020, Oracle and/or its affiliates. All rights reserved.
  */
 package org.opengrok.indexer.web;
 
 import java.io.File;
-import java.io.FileWriter;
 import java.io.IOException;
-import java.io.PrintWriter;
+import java.util.HashSet;
+import java.util.Set;
 
 import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
 import org.junit.Test;
-import static org.junit.Assert.*;
+
+import static org.junit.Assert.assertEquals;
 
 /**
- * JUnit test to test the EftarFile-system
+ * JUnit test to test the EftarFile-system.
  */
 public class EftarFileTest {
 
-    private static File tsv;
     private static File eftar;
 
     public EftarFileTest() {
     }
 
-    private final static String PATH_STRING = "/path";
+    private static final String PATH_STRING = "/path";
 
     @BeforeClass
     public static void setUpClass() throws Exception {
-        tsv = File.createTempFile("paths", ".tsv");
-        eftar = File.createTempFile("paths", ".eftar");
 
-        PrintWriter out = null;
-        try {
-            out = new PrintWriter(new FileWriter(tsv));
-            StringBuilder sb = new StringBuilder();
-            for (int ii = 0; ii < 100; ii++) {
-                sb.append(PATH_STRING);
-                sb.append(Integer.toString(ii));
-                out.print(sb.toString());
-                out.print("\tDescription ");
-                out.println(Integer.toString(ii));
-            }
-            out.flush();
-        } finally {
-            try { out.close(); } catch (Exception e) { }
+        eftar = File.createTempFile("paths", ".eftar");
+        int len = 100;
+        Set<PathDescription> descriptions = new HashSet<>();
+
+        StringBuilder sb = new StringBuilder();
+        for (int ii = 0; ii < len; ii++) {
+            sb.append(PATH_STRING);
+            sb.append(ii);
+            descriptions.add(new PathDescription(sb.toString(), "Description " + ii));
         }
 
-        // Create eftar files.
-        String inputFile = tsv.getAbsolutePath();
         String outputFile = eftar.getAbsolutePath();
 
         EftarFile ef = new EftarFile();
-        ef.create(new File(inputFile), outputFile);
+        ef.create(descriptions, outputFile);
     }
 
     @AfterClass
     public static void tearDownClass() throws Exception {
-        if (tsv != null) {
-            tsv.delete();
-        }
-
         if (eftar != null) {
             eftar.delete();
         }
@@ -96,7 +83,7 @@ public class EftarFileTest {
     }
 
     /**
-     * Test usage of an EftarFile
+     * Test usage of an EftarFile.
      * @throws IOException if an error occurs while accessing the eftar file
      */
     @Test
@@ -112,11 +99,11 @@ public class EftarFileTest {
         int offset = match.length();
         for (int ii = 0; ii < 100; ii++) {
             sb.append(PATH_STRING);
-            sb.append(Integer.toString(ii));
+            sb.append(ii);
             match.setLength(offset);
-            match.append(Integer.toString(ii));
+            match.append(ii);
 
-            assertEquals(match.toString(), er.get(sb.toString()));
+            assertEquals("description for path " + sb.toString(), match.toString(), er.get(sb.toString()));
         }
         er.close();
     }

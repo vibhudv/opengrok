@@ -18,7 +18,7 @@
  */
 
 /*
- * Copyright (c) 2018, 2019 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2020, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.web.api.v1.controller;
@@ -37,6 +37,7 @@ import org.opengrok.indexer.logger.LoggerFactory;
 import org.opengrok.indexer.search.QueryBuilder;
 import org.opengrok.indexer.web.Util;
 import org.opengrok.web.api.v1.filter.CorsEnable;
+import org.opengrok.web.api.v1.filter.IncomingFilter;
 import org.opengrok.web.api.v1.suggester.model.SuggesterData;
 import org.opengrok.web.api.v1.suggester.model.SuggesterQueryData;
 import org.opengrok.web.api.v1.suggester.parser.SuggesterQueryDataParser;
@@ -69,6 +70,7 @@ import java.util.AbstractMap.SimpleEntry;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.CompletableFuture;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -157,7 +159,7 @@ public final class SuggesterController {
 
     /**
      * Returns the suggester configuration {@link SuggesterConfig}.
-     * Because of the {@link org.opengrok.web.api.v1.filter.LocalhostFilter}, the
+     * Because of the {@link IncomingFilter}, the
      * {@link org.opengrok.web.api.v1.controller.ConfigurationController} cannot be accessed from the
      * web page by the remote user. To resolve the problem, this method exposes this functionality.
      * @return suggester configuration
@@ -173,13 +175,13 @@ public final class SuggesterController {
     @PUT
     @Path("/rebuild")
     public void rebuild() {
-        new Thread(() -> suggester.rebuild()).start();
+        CompletableFuture.runAsync(() -> suggester.rebuild());
     }
 
     @PUT
     @Path("/rebuild/{project}")
     public void rebuild(@PathParam("project") final String project) {
-        new Thread(() -> suggester.rebuild(project)).start();
+        CompletableFuture.runAsync(() -> suggester.rebuild(project));
     }
 
     /**

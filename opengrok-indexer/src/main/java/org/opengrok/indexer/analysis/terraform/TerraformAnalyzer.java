@@ -19,9 +19,8 @@
 
 /*
  * Copyright (c) 2010, 2018, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2020, Chris Fraire <cfraire@me.com>.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.indexer.analysis.terraform;
 
 import org.opengrok.indexer.analysis.AbstractAnalyzer;
@@ -59,11 +58,11 @@ public class TerraformAnalyzer extends AbstractSourceCodeAnalyzer {
      * Gets a version number to be used to tag processed documents so that
      * re-analysis can be re-done later if a stored version number is different
      * from the current implementation.
-     * @return 20200410_08
+     * @return 20201003_00
      */
     @Override
     protected int getSpecializedVersionNo() {
-        return 20200410_08; // Edit comment above too!
+        return 20201003_00; // Edit comment above too!
     }
 
     /**

@@ -20,7 +20,6 @@
 /*
  * Copyright (c) 2006, 2018, Oracle and/or its affiliates. All rights reserved.
  */
-
 package org.opengrok.indexer.configuration;
 
 import org.opengrok.indexer.logger.LoggerFactory;
@@ -141,6 +140,6 @@ public class WatchDogService {
                 LOGGER.log(Level.WARNING, "Cannot join WatchDogService thread: ", ex);
             }
         }
-        LOGGER.log(Level.INFO, "Watchdog stoped");
+        LOGGER.log(Level.INFO, "Watchdog stopped");
     }
 }

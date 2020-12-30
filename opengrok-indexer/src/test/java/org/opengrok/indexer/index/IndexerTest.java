@@ -18,8 +18,8 @@
  */
 
 /*
- * Copyright (c) 2008, 2018, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2019, Chris Fraire <cfraire@me.com>.
+ * Copyright (c) 2008, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Portions Copyright (c) 2017, 2019, Chris Fraire <cfraire@me.com>.
  * Portions Copyright (c) 2020, Ric Harris <harrisric@users.noreply.github.com>.
  */
 package org.opengrok.indexer.index;
@@ -27,6 +27,7 @@ package org.opengrok.indexer.index;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.BufferedWriter;
 import java.io.File;
@@ -34,6 +35,8 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.StringWriter;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -46,6 +49,8 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
@@ -57,6 +62,7 @@ import org.opengrok.indexer.analysis.AnalyzerGuru;
 import org.opengrok.indexer.condition.ConditionalRun;
 import org.opengrok.indexer.condition.ConditionalRunRule;
 import org.opengrok.indexer.condition.RepositoryInstalled;
+import org.opengrok.indexer.configuration.CommandTimeoutType;
 import org.opengrok.indexer.configuration.Project;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.history.HistoryGuru;
@@ -69,7 +75,6 @@ import org.opengrok.indexer.util.TandemPath;
 import org.opengrok.indexer.util.TestRepository;
 
 /**
- *
  * @author Trond Norbye
  */
 public class IndexerTest {
@@ -96,21 +101,28 @@ public class IndexerTest {
         repository.destroy();
     }
 
-    /**
-     * Test of doIndexerExecution method, of class Indexer.
-     * @throws java.lang.Exception
-     */
     @Test
-    public void testIndexGeneration() throws Exception {
-        System.out.println("Generating index by using the class methods");
+    public void testXrefGeneration() throws Exception {
         RuntimeEnvironment env = RuntimeEnvironment.getInstance();
         env.setSourceRoot(repository.getSourceRoot());
         env.setDataRoot(repository.getDataRoot());
         env.setHistoryEnabled(false);
         Indexer.getInstance().prepareIndexer(env, true, true,
                 false, null, null);
-        env.setDefaultProjectsFromNames(new TreeSet<>(Collections.singletonList("/c")));
         Indexer.getInstance().doIndexerExecution(true, null, null);
+
+        // There should be certain number of xref files produced.
+        List<String> result = null;
+        try (Stream<Path> walk = Files.walk(Paths.get(env.getDataRootPath(), IndexDatabase.XREF_DIR))) {
+            result = walk.filter(Files::isRegularFile).filter(f -> f.toString().endsWith(".gz")).
+                    map(x -> x.toString()).collect(Collectors.toList());
+        }
+        assertNotNull(result);
+        assertTrue(result.size() > 50);
+
+        // Some files would have empty xref so the file should not be present.
+        assertFalse(Paths.get(env.getDataRootPath(), IndexDatabase.XREF_DIR, "data", "Logo.png", ".gz").
+                toFile().exists());
     }
 
     /**
@@ -129,10 +141,10 @@ public class IndexerTest {
         Project p2 = new Project("Project 2", "/this_path_does_not_exist");
 
         // Make the runtime environment aware of these two projects.
-        Map<String,Project> projects = new HashMap<>();
+        Map<String, Project> projects = new HashMap<>();
         projects.put(p1.getName(), p1);
         projects.put("nonexistent", p2);
-        RuntimeEnvironment env = RuntimeEnvironment.getInstance();        
+        RuntimeEnvironment env = RuntimeEnvironment.getInstance();
         env.setProjects(projects);
         env.setHistoryEnabled(false);
 
@@ -183,7 +195,7 @@ public class IndexerTest {
         Indexer.main(argv);
     }
 
-    private class MyIndexChangeListener implements IndexChangedListener {
+    private static class MyIndexChangeListener implements IndexChangedListener {
 
         final Queue<String> files = new ConcurrentLinkedQueue<>();
         final Queue<String> removedFiles = new ConcurrentLinkedQueue<>();
@@ -198,7 +210,7 @@ public class IndexerTest {
         }
 
         @Override
-        public void fileRemove(String path) {            
+        public void fileRemove(String path) {
         }
 
         @Override
@@ -209,7 +221,7 @@ public class IndexerTest {
         public void fileRemoved(String path) {
             removedFiles.add(path);
         }
-        
+
         public void reset() {
             this.files.clear();
             this.removedFiles.clear();
@@ -219,7 +231,7 @@ public class IndexerTest {
     /**
      * Test indexing w.r.t. setIndexVersionedFilesOnly() setting,
      * i.e. if this option is set to true, index only files tracked by SCM.
-     * @throws Exception 
+     * @throws Exception
      */
     @Test
     public void testIndexWithSetIndexVersionedFilesOnly() throws Exception {
@@ -232,7 +244,7 @@ public class IndexerTest {
         Repository r = null;
         for (RepositoryInfo ri : repos) {
             if (ri.getDirectoryName().equals(repository.getSourceRoot() + "/rfe2575")) {
-                r = RepositoryFactory.getRepository(ri, false);
+                r = RepositoryFactory.getRepository(ri, CommandTimeoutType.INDEXER);
                 break;
             }
         }
@@ -262,10 +274,16 @@ public class IndexerTest {
     /**
      * IndexChangedListener class used solely for {@code testRemoveFileOnFileChange()}.
      */
-    private class RemoveIndexChangeListener implements IndexChangedListener {
+    private static class RemoveIndexChangeListener implements IndexChangedListener {
 
         final Queue<String> filesToAdd = new ConcurrentLinkedQueue<>();
         final Queue<String> removedFiles = new ConcurrentLinkedQueue<>();
+
+        private final String path;
+
+        RemoveIndexChangeListener(String path) {
+            this.path = path;
+        }
 
         @Override
         public void fileAdd(String path, String analyzer) {
@@ -289,11 +307,12 @@ public class IndexerTest {
             // The test for the file existence needs to be performed here
             // since the call to {@code removeFile()} will be eventually
             // followed by {@code addFile()} that will create the file again.
-            if (path.equals("/mercurial/bar.txt")) {
+            if (path.equals(this.path)) {
                 RuntimeEnvironment env = RuntimeEnvironment.getInstance();
                 File f = new File(env.getDataRootPath(),
                         TandemPath.join("historycache" + path, ".gz"));
-                Assert.assertTrue("history cache file should be preserved", f.exists());
+                Assert.assertTrue(String.format("history cache file %s should be preserved", f),
+                        f.exists());
             }
             removedFiles.add(path);
         }
@@ -307,7 +326,7 @@ public class IndexerTest {
     /**
      * Test that reindex after changing a file does not wipe out history index
      * for this file. This is important for the incremental history indexing.
-     * @throws Exception 
+     * @throws Exception
      */
     @Test
     @ConditionalRun(RepositoryInstalled.MercurialInstalled.class)
@@ -325,22 +344,22 @@ public class IndexerTest {
         Project project = new Project("mercurial", "/mercurial");
         IndexDatabase idb = new IndexDatabase(project);
         assertNotNull(idb);
-        RemoveIndexChangeListener listener = new RemoveIndexChangeListener();
+        String path = "/mercurial/bar.txt";
+        RemoveIndexChangeListener listener = new RemoveIndexChangeListener(path);
         idb.addIndexChangedListener(listener);
         idb.update();
         Assert.assertEquals(5, listener.filesToAdd.size());
         listener.reset();
 
         // Change a file so that it gets picked up by the indexer.
-        Thread.sleep(1100);
-        File bar = new File(testrepo.getSourceRoot() + File.separator + "mercurial",
-                "bar.txt");
+        File historyFile = new File(env.getDataRootPath(),
+                TandemPath.join("historycache" + path, ".gz"));
+        Assert.assertTrue(String.format("history cache for %s has to exist", path), historyFile.exists());
+        File bar = new File(testrepo.getSourceRoot() + File.separator + "mercurial", "bar.txt");
         Assert.assertTrue(bar.exists());
-        FileWriter fw = new FileWriter(bar, true);
-        BufferedWriter bw = new BufferedWriter(fw);
-        bw.write("foo\n");
-        bw.close();
-        fw.close();
+        try (BufferedWriter bw = new BufferedWriter(new FileWriter(bar, true))) {
+            bw.write("foo\n");
+        }
 
         // reindex
         idb.update();
@@ -363,7 +382,7 @@ public class IndexerTest {
         env.setSourceRoot(testrepo.getSourceRoot());
 
         env.setRepositories(testrepo.getSourceRoot());
-        assertEquals(10, env.getRepositories().size());
+        assertEquals(9, env.getRepositories().size());
 
         String[] repoNames = {"mercurial", "git"};
         env.setRepositories(Arrays.stream(repoNames).
@@ -408,7 +427,7 @@ public class IndexerTest {
 
     /**
      * Test IndexChangedListener behavior in repository with invalid files.
-     * @throws Exception 
+     * @throws Exception
      */
     @Test
     public void testIncrementalIndexAddRemoveFile() throws Exception {
@@ -438,7 +457,7 @@ public class IndexerTest {
 
     /**
      * Test that named pipes are not indexed.
-     * @throws Exception 
+     * @throws Exception
      */
     @Test
     public void testBug11896() throws Exception {
@@ -455,10 +474,10 @@ public class IndexerTest {
             env.setDataRoot(repository.getDataRoot());
             Executor executor;
 
-            executor = new Executor(new String[]{"mkdir", "-p", repository.getSourceRoot() + "/testBug11896"});
+            executor = new Executor(new String[] {"mkdir", "-p", repository.getSourceRoot() + "/testBug11896"});
             executor.exec(true);
 
-            executor = new Executor(new String[]{"mkfifo", repository.getSourceRoot() + "/testBug11896/FIFO"});
+            executor = new Executor(new String[] {"mkfifo", repository.getSourceRoot() + "/testBug11896/FIFO"});
             executor.exec(true);
 
             Project project = new Project("testBug11896");
@@ -478,7 +497,6 @@ public class IndexerTest {
 
     /**
      * Should include the existing project.
-     *
      * @throws Exception
      */
     @Test
@@ -491,13 +509,12 @@ public class IndexerTest {
                 false, null, null);
         env.setDefaultProjectsFromNames(new TreeSet<>(Collections.singletonList("/c")));
         assertEquals(1, env.getDefaultProjects().size());
-        assertEquals(new TreeSet<>(Arrays.asList(new String[]{"c"})),
+        assertEquals(new TreeSet<>(Arrays.asList(new String[] {"c"})),
                 env.getDefaultProjects().stream().map((Project p) -> p.getName()).collect(Collectors.toSet()));
     }
 
     /**
      * Should discard the non existing project.
-     *
      * @throws Exception
      */
     @Test
@@ -517,13 +534,12 @@ public class IndexerTest {
                 false, null, null);
         env.setDefaultProjectsFromNames(projectSet);
         assertEquals(4, env.getDefaultProjects().size());
-        assertEquals(new TreeSet<>(Arrays.asList(new String[]{"lisp", "pascal", "perl", "data"})),
+        assertEquals(new TreeSet<>(Arrays.asList(new String[] {"lisp", "pascal", "perl", "data"})),
                 env.getDefaultProjects().stream().map((Project p) -> p.getName()).collect(Collectors.toSet()));
     }
 
     /**
      * Should include all projects in the source root.
-     *
      * @throws Exception
      */
     @Test

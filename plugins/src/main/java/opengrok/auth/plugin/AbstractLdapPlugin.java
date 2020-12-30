@@ -18,7 +18,7 @@
  */
 
 /*
- * Copyright (c) 2017, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2020, Oracle and/or its affiliates. All rights reserved.
  */
 package opengrok.auth.plugin;
 
@@ -37,7 +37,7 @@ import org.opengrok.indexer.configuration.Project;
 
 /**
  * Abstract class for all plug-ins working with LDAP. Takes care of
- * <ul>
+ * <p><ul>
  * <li>controlling the established session</li>
  * <li>controlling if the session belongs to the user</li>
  * </ul>
@@ -46,7 +46,6 @@ import org.opengrok.indexer.configuration.Project;
  * The intended methods to implement are the
  * {@link #checkEntity(HttpServletRequest, Project)} and
  * {@link #checkEntity(HttpServletRequest, Group)}.
- * </p>
  *
  * @author Krystof Tulinger
  */
@@ -221,7 +220,6 @@ public abstract class AbstractLdapPlugin implements IAuthorizationPlugin {
      *
      * @param req the HTTP request
      */
-    @SuppressWarnings("unchecked")
     private void ensureSessionExists(HttpServletRequest req) {
         if (req.getSession() == null) {
             // old/invalid request (should not happen)

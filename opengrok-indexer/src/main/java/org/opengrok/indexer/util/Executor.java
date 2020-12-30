@@ -21,7 +21,6 @@
  * Copyright (c) 2008, 2019, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2019, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.indexer.util;
 
 import java.io.BufferedInputStream;
@@ -90,7 +89,7 @@ public class Executor {
     public Executor(List<String> cmdList, File workingDirectory) {
         this.cmdList = cmdList;
         this.workingDirectory = workingDirectory;
-        this.timeout = RuntimeEnvironment.getInstance().getCommandTimeout() * 1000;
+        this.timeout = RuntimeEnvironment.getInstance().getIndexerCommandTimeout() * 1000;
     }
 
     /**
@@ -186,6 +185,7 @@ public class Executor {
 
         Process process = null;
         try {
+            Statistics stat = new Statistics();
             process = processBuilder.start();
             final Process proc = process;
 
@@ -230,7 +230,10 @@ public class Executor {
             handler.processStream(process.getInputStream());
 
             ret = process.waitFor();
-            
+
+            stat.report(LOGGER, Level.FINE,
+                    String.format("Finished command [%s] in directory %s with exit code %d", cmd_str, dir_str, ret),
+                    "executor.latency");
             LOGGER.log(Level.FINE,
                 "Finished command [{0}] in directory {1} with exit code {2}",
                 new Object[] {cmd_str, dir_str, ret});

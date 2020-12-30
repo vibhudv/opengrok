@@ -19,9 +19,11 @@
 
 /*
  * Copyright (c) 2008, 2018, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2020, Chris Fraire <cfraire@me.com>.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.history;
+
+import static org.opengrok.indexer.history.HistoryEntry.TAGS_SEPARATOR;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -42,10 +44,14 @@ import java.util.Locale;
 import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
+import org.opengrok.indexer.configuration.CommandTimeoutType;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.logger.LoggerFactory;
 import org.opengrok.indexer.util.BufferSink;
 import org.opengrok.indexer.util.Executor;
+
+import org.jetbrains.annotations.NotNull;
 
 /**
  * An interface for an external repository.
@@ -91,6 +97,7 @@ public abstract class Repository extends RepositoryInfo {
      *
      * @return {@code true} if the repository can get history for directories
      */
+    @NotNull
     abstract boolean hasHistoryForDirectories();
 
     /**
@@ -110,7 +117,7 @@ public abstract class Repository extends RepositoryInfo {
 
     /**
      * Gets the instance's repository command, primarily for testing purposes.
-     * @return null if not {@link isWorking}, or otherwise a defined command
+     * @return null if not {@link #isWorking()}, or otherwise a defined command
      */
     public String getRepoCommand() {
         isWorking();
@@ -120,15 +127,12 @@ public abstract class Repository extends RepositoryInfo {
     /**
      * <p>
      * Get the history after a specified revision.
-     * </p>
-     *
      * <p>
-     * The default implementation first fetches the full history and then throws
+     * <p>The default implementation first fetches the full history and then throws
      * away the oldest revisions. This is not efficient, so subclasses should
      * override it in order to get good performance. Once every subclass has
      * implemented a more efficient method, the default implementation should be
      * removed and made abstract.
-     * </p>
      *
      * @param file the file to get the history for
      * @param sinceRevision the revision right before the first one to return,
@@ -275,24 +279,25 @@ public abstract class Repository extends RepositoryInfo {
      * tags to changesets which actually exist in the history of given file.
      * Must be implemented repository-specific.
      *
-     * @see getTagList
-     * @param hist History we want to assign tags to.
+     * @see #getTagList
+     * @param hist History object we want to assign tags to.
      */
-    void assignTagsInHistory(History hist) throws HistoryException {
+    void assignTagsInHistory(History hist) {
         if (hist == null) {
             return;
         }
+
         if (this.getTagList() == null) {
-            throw new HistoryException("Tag list was not created before assigning tags to changesets!");
+            throw new IllegalStateException("getTagList() is null");
         }
+
         Iterator<TagEntry> it = this.getTagList().descendingIterator();
         TagEntry lastTagEntry = null;
-        // Go through all commits of given file
         for (HistoryEntry ent : hist.getHistoryEntries()) {
             // Assign all tags created since the last revision
-            // Revision in this HistoryEntry must be already specified!
-            // TODO is there better way to do this? We need to "repeat"
-            // last element returned by call to next()
+            // Revision in this HistoryEntry must be already specified !
+            // TODO: is there better way to do this? We need to "repeat"
+            //   last element returned by call to next()
             while (lastTagEntry != null || it.hasNext()) {
                 if (lastTagEntry == null) {
                     lastTagEntry = it.next();
@@ -301,7 +306,7 @@ public abstract class Repository extends RepositoryInfo {
                     if (ent.getTags() == null) {
                         ent.setTags(lastTagEntry.getTags());
                     } else {
-                        ent.setTags(ent.getTags() + ", " + lastTagEntry.getTags());
+                        ent.setTags(ent.getTags() + TAGS_SEPARATOR + lastTagEntry.getTags());
                     }
                 } else {
                     break;
@@ -319,9 +324,9 @@ public abstract class Repository extends RepositoryInfo {
      * Create internal list of all tags in this repository.
      *
      * @param directory directory of the repository
-     * @param interactive true if in interactive mode
+     * @param cmdType command timeout type
      */
-    protected void buildTagList(File directory, boolean interactive) {
+    protected void buildTagList(File directory, CommandTimeoutType cmdType) {
         this.tagList = null;
     }
     
@@ -407,7 +412,7 @@ public abstract class Repository extends RepositoryInfo {
         // We need to refresh list of tags for incremental reindex.
         RuntimeEnvironment env = RuntimeEnvironment.getInstance();
         if (env.isTagsEnabled() && this.hasFileBasedTags()) {
-            this.buildTagList(new File(this.getDirectoryName()), false);
+            this.buildTagList(new File(this.getDirectoryName()), CommandTimeoutType.INDEXER);
         }
 
         if (history != null) {
@@ -419,19 +424,19 @@ public abstract class Repository extends RepositoryInfo {
      * Check if this it the right repository type for the given file.
      *
      * @param file File to check if this is a repository for.
-     * @param interactive is this run from interactive mode
+     * @param cmdType command timeout type
      * @return true if this is the correct repository for this file/directory.
      */
-    abstract boolean isRepositoryFor(File file, boolean interactive);
+    abstract boolean isRepositoryFor(File file, CommandTimeoutType cmdType);
     
     public final boolean isRepositoryFor(File file) {
-        return isRepositoryFor(file, false);
+        return isRepositoryFor(file, CommandTimeoutType.INDEXER);
     }
 
     /**
      * Determine parent of this repository.
      */
-    abstract String determineParent(boolean interactive) throws IOException;
+    abstract String determineParent(CommandTimeoutType cmdType) throws IOException;
     
     /**
      * Determine parent of this repository.
@@ -439,13 +444,13 @@ public abstract class Repository extends RepositoryInfo {
      * @throws java.io.IOException I/O exception
      */
     public final String determineParent() throws IOException {
-        return determineParent(false);
+        return determineParent(CommandTimeoutType.INDEXER);
     }
 
     /**
      * Determine branch of this repository.
      */
-    abstract String determineBranch(boolean interactive) throws IOException;
+    abstract String determineBranch(CommandTimeoutType cmdType) throws IOException;
 
     /**
      * Determine branch of this repository.
@@ -453,7 +458,7 @@ public abstract class Repository extends RepositoryInfo {
      * @throws java.io.IOException I/O exception
      */
     public final String determineBranch() throws IOException {
-        return determineBranch(false);
+        return determineBranch(CommandTimeoutType.INDEXER);
     }
     
     /**
@@ -478,14 +483,14 @@ public abstract class Repository extends RepositoryInfo {
      * This operation is consider "heavy" so this function should not be
      * called on every web request.
      *
-     * @param interactive true if interactive mode
+     * @param cmdType command timeout type
      * @return the version
      * @throws IOException if I/O exception occurred
      */
-    abstract String determineCurrentVersion(boolean interactive) throws IOException;
+    abstract String determineCurrentVersion(CommandTimeoutType cmdType) throws IOException;
     
     public final String determineCurrentVersion() throws IOException {
-        return determineCurrentVersion(false);
+        return determineCurrentVersion(CommandTimeoutType.INDEXER);
     }
 
     /**
@@ -543,6 +548,17 @@ public abstract class Repository extends RepositoryInfo {
         return exec.exec(false) == 0;
     }
 
+    protected static String getCommand(Class<? extends Repository> repoClass, String propertyKey, String fallbackCommand) {
+        RuntimeEnvironment env = RuntimeEnvironment.getInstance();
+        String className = repoClass.getCanonicalName();
+        String command = env.getRepoCmd(className);
+        if (command == null) {
+            command = System.getProperty(propertyKey, fallbackCommand);
+            env.setRepoCmd(className, command);
+        }
+        return command;
+    }
+
     /**
      * Set the name of the external client command that should be used to access
      * the repository wrt. the given parameters. Does nothing, if this
@@ -556,18 +572,10 @@ public abstract class Repository extends RepositoryInfo {
      * @see #RepoCommand
      */
     protected String ensureCommand(String propertyKey, String fallbackCommand) {
-        RuntimeEnvironment env = RuntimeEnvironment.getInstance();
-        
-        if (RepoCommand != null) {
-            return RepoCommand;
-        }
-        
-        RepoCommand = env.getRepoCmd(this.getClass().getCanonicalName());
         if (RepoCommand == null) {
-            RepoCommand = System.getProperty(propertyKey, fallbackCommand);
-            env.setRepoCmd(this.getClass().getCanonicalName(), RepoCommand);
+            RepoCommand = getCommand(this.getClass(), propertyKey, fallbackCommand);
         }
-        
+
         return RepoCommand;
     }
 

@@ -18,7 +18,7 @@
  */
 
 /*
- * Copyright (c) 2011 Jens Elkner.
+ * Copyright (c) 2011, Jens Elkner.
  * Copyright (c) 2011, 2019, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
  */
@@ -73,7 +73,17 @@ public enum Prefix {
     /** Related source file or directory not found/unavailable/ignored. */
     NOT_FOUND("/enoent"),
     /** Misc error occurred. */
-    ERROR("/error");
+    ERROR("/error"),
+    /** RESTful API. */
+    REST_API("/api"),
+    /** Monitoring. */
+    METRICS("/metrics"),
+    /** CSS and images. */
+    STATIC("/default"),
+    /** JavaScript. */
+    JS("/js"),
+    /** JavaScript in Web JARs. */
+    WEBJARS("/webjars");
 
     private final String prefix;
     Prefix(String prefix) {

@@ -18,7 +18,7 @@
  */
 
 /*
- * Copyright (c) 2018 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2019, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.configuration;
@@ -155,8 +155,7 @@ public class SuggesterConfig {
         setShowProjects(SHOW_PROJECTS_DEFAULT);
         setShowTime(SHOW_TIME_DEFAULT);
         setTimeThreshold(TIME_THRESHOLD_DEFAULT);
-        // do not use setter because indexer invocation with --man will fail
-        rebuildCronConfig = REBUILD_CRON_CONFIG_DEFAULT;
+        setRebuildCronConfig(REBUILD_CRON_CONFIG_DEFAULT);
         setBuildTerminationTime(BUILD_TERMINATION_TIME_DEFAULT);
         setRebuildThreadPoolSizeInNcpuPercent(REBUILD_THREAD_POOL_PERCENT_NCPUS_DEFAULT);
     }

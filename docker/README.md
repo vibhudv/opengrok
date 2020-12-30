@@ -70,11 +70,13 @@ The volume mounted to `/opengrok/src` should contain the projects you want to ma
 
 ## Environment Variables
 
-| Docker Environment Var. | Description |
-| ----------------------- | ----------- |
-`REINDEX: <time_in_minutes>`<br/> *Optional* *Default: 10* | Period of automatic mirroring/reindexing. Setting to `0` will disable automatic indexing. You can manually trigger an reindex using docker exec: `docker exec <container> /scripts/index.sh`
-`INDEXER_OPT` | pass extra options to opengrok-indexer. For example, "-i d:vendor" will remove all the `*/vendor/*` files from the index. You can check the indexer options on https://github.com/oracle/opengrok/wiki/Python-scripts-transition-guide
-`NOMIRROR` | To avoid the mirroring step, set the variable to non-empty value.
+| Docker Environment Var. | Default value | Description |
+| ----------------------- | ------------- | ----------- |
+`REINDEX` | 10 | Period of automatic mirroring/reindexing in minutes. Setting to `0` will disable automatic indexing. You can manually trigger an reindex using docker exec: `docker exec <container> /scripts/index.sh`
+`INDEXER_FLAGS` | `-H -P -S -G` | allows to override indexer flags
+`INDEXER_OPT` | empty | pass extra options to OpenGrok Indexer. For example, `-i d:vendor` will remove all the `*/vendor/*` files from the index. You can check the indexer options on https://github.com/oracle/opengrok/wiki/Python-scripts-transition-guide
+`NOMIRROR` | empty | To avoid the mirroring step, set the variable to non-empty value.
+`URL_ROOT` | `/` | Override the sub-URL that OpenGrok should run on.
 
 To specify environment variable for `docker run`, use the `-e` option, e.g. `-e REINDEX=30`
 
@@ -104,9 +106,9 @@ services:
       REINDEX: '60'
     # Volumes store your data between container upgrades
     volumes:
-       - '~/opengrok-src/:/opengrok/src/'  # source code
-       - '~/opengrok-etc/:/opengrok/etc/'  # folder contains configuration.xml
-       - '~/opengrok-data/:/opengrok/data/'  # index and other things for source code
+       - '~/opengrok/src/:/opengrok/src/'  # source code
+       - '~/opengrok/etc/:/opengrok/etc/'  # folder contains configuration.xml
+       - '~/opengrok/data/:/opengrok/data/'  # index and other things for source code
 ```
 
 Save the file into `docker-compose.yml` and then simply run
@@ -130,6 +132,8 @@ docker run -d \
 
 If you want to do your own development, you can build the image yourself:
 
+    git clone https://github.com/oracle/opengrok.git
+    cd opengrok
     docker build -t opengrok-dev .
 
 Then run the container:

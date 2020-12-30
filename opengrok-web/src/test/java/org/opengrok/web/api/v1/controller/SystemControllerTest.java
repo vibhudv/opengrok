@@ -20,7 +20,6 @@
 /*
  * Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.web.api.v1.controller;
 
 import org.junit.Test;
@@ -28,6 +27,7 @@ import org.opengrok.indexer.configuration.Configuration;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.util.IOUtils;
 import org.opengrok.indexer.web.EftarFileReader;
+import org.opengrok.indexer.web.PathDescription;
 import org.opengrok.web.api.v1.RestApp;
 
 import javax.ws.rs.client.Entity;
@@ -107,31 +107,23 @@ public class SystemControllerTest extends OGKJerseyTest {
 
         // Create path descriptions string.
         StringBuilder sb = new StringBuilder();
-        String[][] descriptions = {
-                { "/path1", "foo foo" },
-                { "/path2", "bar bar" }
+        PathDescription[] descriptions = {
+                new PathDescription("/path1", "foo foo"),
+                new PathDescription("/path2", "bar bar")
         };
-
-        for (int i = 0; i < descriptions.length; i++) {
-            sb.append(descriptions[i][0]);
-            sb.append("\t");
-            sb.append(descriptions[i][1]);
-            sb.append("\n");
-        }
-        String input = sb.toString();
 
         // Reload the contents via API call.
         Response r = target("system")
                 .path("pathdesc")
-                .request().post(Entity.text(input));
+                .request().post(Entity.json(descriptions));
         assertEquals(Response.Status.NO_CONTENT.getStatusCode(), r.getStatus());
 
         // Check
         Path eftarPath = env.getDtagsEftarPath();
         assertTrue(eftarPath.toFile().exists());
         try (EftarFileReader er = new EftarFileReader(eftarPath.toString())) {
-            for (int i = 0; i < descriptions.length; i++) {
-                assertEquals(descriptions[i][1], er.get(descriptions[i][0]));
+            for (PathDescription description : descriptions) {
+                assertEquals(description.getDescription(), er.get(description.getPath()));
             }
         }
 

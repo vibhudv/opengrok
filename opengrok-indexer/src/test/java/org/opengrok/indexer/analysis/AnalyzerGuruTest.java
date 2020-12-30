@@ -18,10 +18,9 @@
  */
 
 /*
- * Copyright (c) 2010, 2018 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2010, 2020, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2017, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.indexer.analysis;
 
 import java.io.ByteArrayInputStream;
@@ -29,13 +28,13 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.charset.Charset;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
-import org.junit.Assert;
+
 import org.junit.Test;
 import org.opengrok.indexer.analysis.archive.ZipAnalyzer;
 import org.opengrok.indexer.analysis.c.CxxAnalyzerFactory;
@@ -49,18 +48,26 @@ import org.opengrok.indexer.analysis.plain.PlainAnalyzer;
 import org.opengrok.indexer.analysis.plain.XMLAnalyzer;
 import org.opengrok.indexer.analysis.sh.ShAnalyzer;
 import org.opengrok.indexer.analysis.sh.ShAnalyzerFactory;
-import static org.junit.Assert.*;
+
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNotSame;
+import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
+import static org.junit.Assert.assertTrue;
 
 /**
  * Tests for the functionality provided by the AnalyzerGuru class.
  */
 public class AnalyzerGuruTest {
+
     @Test
     public void testGetFileTypeDescriptions() {
-        Map<String,String> map = AnalyzerGuru.getfileTypeDescriptions();
-        Assert.assertTrue(map.size() > 0);
+        Map<String, String> map = AnalyzerGuru.getfileTypeDescriptions();
+        assertTrue(map.size() > 0);
     }
-    
+
     /**
      * Test that we get the correct analyzer if the file name exactly matches a
      * known extension.
@@ -68,7 +75,7 @@ public class AnalyzerGuruTest {
     @Test
     public void testFileNameSameAsExtension() throws Exception {
         ByteArrayInputStream in = new ByteArrayInputStream(
-                "#!/bin/sh\nexec /usr/bin/zip \"$@\"\n".getBytes("US-ASCII"));
+                "#!/bin/sh\nexec /usr/bin/zip \"$@\"\n".getBytes(StandardCharsets.US_ASCII));
         String file = "/dummy/path/to/source/zip";
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, file);
         assertSame(ShAnalyzer.class, fa.getClass());
@@ -77,9 +84,9 @@ public class AnalyzerGuruTest {
     @Test
     public void testUTF8ByteOrderMark() throws Exception {
         byte[] xml = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF, // UTF-8 BOM
-                       '<', '?', 'x', 'm', 'l', ' ',
-                       'v', 'e', 'r', 's', 'i', 'o', 'n', '=',
-                       '"', '1', '.', '0', '"', '?', '>'};
+                '<', '?', 'x', 'm', 'l', ' ',
+                'v', 'e', 'r', 's', 'i', 'o', 'n', '=',
+                '"', '1', '.', '0', '"', '?', '>'};
         ByteArrayInputStream in = new ByteArrayInputStream(xml);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
         assertSame(XMLAnalyzer.class, fa.getClass());
@@ -88,19 +95,18 @@ public class AnalyzerGuruTest {
     @Test
     public void testUTF8ByteOrderMarkPlusCopyrightSymbol() throws Exception {
         byte[] doc = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF, // UTF-8 BOM
-                       '/', '/', ' ', (byte) 0xC2, (byte)0xA9};
+                '/', '/', ' ', (byte) 0xC2, (byte) 0xA9};
         ByteArrayInputStream in = new ByteArrayInputStream(doc);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
-        assertSame("despite BOM as precise match,", PlainAnalyzer.class,
-            fa.getClass());
+        assertSame("despite BOM as precise match,", PlainAnalyzer.class, fa.getClass());
     }
 
     @Test
     public void testUTF8ByteOrderMarkPlainFile() throws Exception {
         byte[] bytes = {(byte) 0xEF, (byte) 0xBB, (byte) 0xBF, // UTF-8 BOM
-                       'h', 'e', 'l', 'l', 'o', ' ',
-                       'w', 'o', 'r', 'l', 'd'};
-        
+                'h', 'e', 'l', 'l', 'o', ' ',
+                'w', 'o', 'r', 'l', 'd'};
+
         ByteArrayInputStream in = new ByteArrayInputStream(bytes);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
         assertSame(PlainAnalyzer.class, fa.getClass());
@@ -109,21 +115,20 @@ public class AnalyzerGuruTest {
     @Test
     public void testUTF16BigByteOrderMarkPlusCopyrightSymbol() throws Exception {
         byte[] doc = {(byte) 0xFE, (byte) 0xFF, // UTF-16BE BOM
-                       0, '#', 0, ' ', (byte) 0xC2, (byte) 0xA9};
+                0, '#', 0, ' ', (byte) 0xC2, (byte) 0xA9};
         ByteArrayInputStream in = new ByteArrayInputStream(doc);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
         assertSame("despite BOM as precise match,", PlainAnalyzer.class,
-            fa.getClass());
+                fa.getClass());
     }
 
     @Test
     public void testUTF16LittleByteOrderMarkPlusCopyrightSymbol() throws Exception {
         byte[] doc = {(byte) 0xFF, (byte) 0xFE, // UTF-16BE BOM
-                       '#', 0, ' ', 0, (byte) 0xA9, (byte) 0xC2};
+                '#', 0, ' ', 0, (byte) 0xA9, (byte) 0xC2};
         ByteArrayInputStream in = new ByteArrayInputStream(doc);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
-        assertSame("despite BOM as precise match,", PlainAnalyzer.class,
-            fa.getClass());
+        assertSame("despite BOM as precise match,", PlainAnalyzer.class, fa.getClass());
     }
 
     @Test
@@ -138,8 +143,7 @@ public class AnalyzerGuruTest {
 
         // add an analyzer for the extension and see that it is picked up
         AnalyzerGuru.addExtension("UNLIKELY_EXTENSION", faf);
-        assertSame(ShAnalyzerFactory.class,
-                   AnalyzerGuru.find("file.unlikely_extension").getClass());
+        assertSame(ShAnalyzerFactory.class, AnalyzerGuru.find("file.unlikely_extension").getClass());
 
         // remove the mapping and verify that it is gone
         AnalyzerGuru.addExtension("UNLIKELY_EXTENSION", null);
@@ -158,8 +162,7 @@ public class AnalyzerGuruTest {
 
         // add an analyzer for the prefix and see that it is picked up
         AnalyzerGuru.addPrefix("UNLIKELY_PREFIX", faf);
-        assertSame(ShAnalyzerFactory.class,
-                   AnalyzerGuru.find("unlikely_prefix.foo").getClass());
+        assertSame(ShAnalyzerFactory.class, AnalyzerGuru.find("unlikely_prefix.foo").getClass());
 
         // remove the mapping and verify that it is gone
         AnalyzerGuru.addPrefix("UNLIKELY_PREFIX", null);
@@ -193,9 +196,8 @@ public class AnalyzerGuruTest {
     @Test
     public void testPlainText() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(
-                "This is a plain text file.".getBytes("US-ASCII"));
-        assertSame(PlainAnalyzer.class,
-                   AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
+                "This is a plain text file.".getBytes(StandardCharsets.US_ASCII));
+        assertSame(PlainAnalyzer.class, AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
     }
 
     @Test
@@ -212,139 +214,128 @@ public class AnalyzerGuruTest {
         AnalyzerFactory f2 = AnalyzerGuru.find("main.cc");
         assertNotNull(f2);
         assertNotSame(f1.getClass(), f2.getClass());
-
     }
 
     /**
      * Test that matching of full names works. Bug #859.
      */
     @Test
-    @SuppressWarnings("rawtypes")
     public void matchesFullName() {
         String s = File.separator;  // so test works on Unix and Windows
-        String path = s+"path"+s+"to"+s+"Makefile";
+        String path = s + "path" + s + "to" + s + "Makefile";
         AnalyzerFactory faf = AnalyzerGuru.find(path);
-        Class c = faf.getClass();
         assertSame(ShAnalyzerFactory.class, faf.getClass());
         faf = AnalyzerGuru.find("GNUMakefile");
         assertSame(ShAnalyzerFactory.class, faf.getClass());
     }
-    
+
     /**
      * Test for obtaining a language analyzer's factory class.
      * This should not fail even if package names change.
-     * The only assumptions made is that all the language analyzer 
+     * The only assumptions made is that all the language analyzer
      * and factory names follow the pattern:
-     * 
-     *  language + "Analyzer",  and 
-     *  language + "AnalyzerFactory"
+     * <p>
+     * language + "Analyzer",  and
+     * language + "AnalyzerFactory"
      */
     @Test
-    @SuppressWarnings("rawtypes")
     public void getAnalyzerFactoryClass() {
-        Class fc_forSh = AnalyzerGuru.getFactoryClass("Sh");
-        Class fc_forShAnalyzer = AnalyzerGuru.getFactoryClass("ShAnalyzer");
-        Class fc_simpleName = AnalyzerGuru.getFactoryClass("ShAnalyzerFactory");
-        assertEquals(ShAnalyzerFactory.class, fc_forSh);
-        assertEquals(ShAnalyzerFactory.class,fc_forShAnalyzer);
-        assertEquals(ShAnalyzerFactory.class,fc_simpleName);
-        
-        Class fc = AnalyzerGuru.getFactoryClass("UnknownAnalyzerFactory");
+        Class<?> fcForSh = AnalyzerGuru.getFactoryClass("Sh");
+        Class<?> fcForShAnalyzer = AnalyzerGuru.getFactoryClass("ShAnalyzer");
+        Class<?> fcSimpleName = AnalyzerGuru.getFactoryClass("ShAnalyzerFactory");
+        assertEquals(ShAnalyzerFactory.class, fcForSh);
+        assertEquals(ShAnalyzerFactory.class, fcForShAnalyzer);
+        assertEquals(ShAnalyzerFactory.class, fcSimpleName);
+
+        Class<?> fc = AnalyzerGuru.getFactoryClass("UnknownAnalyzerFactory");
         assertNull(fc);
     }
 
     @Test
     public void shouldNotThrowGettingCsprojOpening() throws IOException {
-        InputStream res = getClass().getClassLoader().getResourceAsStream(
-            "analysis/a.csproj");
+        InputStream res = getClass().getClassLoader().getResourceAsStream("analysis/a.csproj");
         assertNotNull("despite embedded a.csproj,", res);
         assertSame("despite normal a.csproj,", XMLAnalyzer.class,
-            AnalyzerGuru.getAnalyzer(res, "dummy").getClass());
+                AnalyzerGuru.getAnalyzer(res, "dummy").getClass());
     }
 
     @Test
     public void shouldMatchPerlHashbang() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(
-                "#!/usr/bin/perl -w".getBytes("US-ASCII"));
+                "#!/usr/bin/perl -w".getBytes(StandardCharsets.US_ASCII));
         assertSame("despite Perl hashbang,", PerlAnalyzer.class,
-            AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
+                AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
     }
 
     @Test
     public void shouldMatchPerlHashbangSpaced() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(
-                "\n\t #!  /usr/bin/perl -w".getBytes("US-ASCII"));
+                "\n\t #!  /usr/bin/perl -w".getBytes(StandardCharsets.US_ASCII));
         assertSame("despite Perl hashbang,", PerlAnalyzer.class,
-            AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
+                AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
     }
 
     @Test
     public void shouldMatchEnvPerlHashbang() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(
-                "#!/usr/bin/env perl -w".getBytes("US-ASCII"));
+                "#!/usr/bin/env perl -w".getBytes(StandardCharsets.US_ASCII));
         assertSame("despite env hashbang with perl,", PerlAnalyzer.class,
-            AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
+                AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
     }
 
     @Test
     public void shouldMatchEnvPerlHashbangSpaced() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(
-                "\n\t #!  /usr/bin/env\t perl -w".getBytes("US-ASCII"));
+                "\n\t #!  /usr/bin/env\t perl -w".getBytes(StandardCharsets.US_ASCII));
         assertSame("despite env hashbang with perl,", PerlAnalyzer.class,
-            AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
+                AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
     }
 
     @Test
     public void shouldNotMatchEnvLFPerlHashbang() throws IOException {
         ByteArrayInputStream in = new ByteArrayInputStream(
-                "#!/usr/bin/env\nperl".getBytes("US-ASCII"));
+                "#!/usr/bin/env\nperl".getBytes(StandardCharsets.US_ASCII));
         assertNotSame("despite env hashbang LF,", PerlAnalyzer.class,
-            AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
+                AnalyzerGuru.getAnalyzer(in, "dummy").getClass());
     }
 
     @Test
     public void shouldMatchELFMagic() throws Exception {
-        byte[] elfmt = {(byte)0x7F, 'E', 'L', 'F', (byte) 2, (byte) 2, (byte) 1,
-            (byte) 0x06};
+        byte[] elfmt = {(byte) 0x7F, 'E', 'L', 'F', (byte) 2, (byte) 2, (byte) 1,
+                (byte) 0x06};
         ByteArrayInputStream in = new ByteArrayInputStream(elfmt);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
-        assertSame("despite \\177ELF magic,", ELFAnalyzer.class,
-            fa.getClass());
+        assertSame("despite \\177ELF magic,", ELFAnalyzer.class, fa.getClass());
     }
 
     @Test
     public void shouldMatchJavaClassMagic() throws Exception {
         String oldMagic = "\312\376\272\276";      // cafebabe?
         String newMagic = new String(new byte[] {(byte) 0xCA, (byte) 0xFE,
-            (byte) 0xBA, (byte) 0xBE}, Charset.forName("UTF-8"));
+                (byte) 0xBA, (byte) 0xBE}, StandardCharsets.UTF_8);
         assertNotEquals("despite octal string, escape it as unicode,", oldMagic, newMagic);
 
         // 0xCAFEBABE (4), minor (2), major (2)
         byte[] dotclass = {(byte) 0xCA, (byte) 0xFE, (byte) 0xBA, (byte) 0xBE,
-            (byte) 0, (byte) 1, (byte) 0, (byte) 0x34};
+                (byte) 0, (byte) 1, (byte) 0, (byte) 0x34};
         ByteArrayInputStream in = new ByteArrayInputStream(dotclass);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
-        assertSame("despite 0xCAFEBABE magic,", JavaClassAnalyzer.class,
-            fa.getClass());
+        assertSame("despite 0xCAFEBABE magic,", JavaClassAnalyzer.class, fa.getClass());
     }
 
     @Test
     public void shouldMatchTroffMagic() throws Exception {
-        byte[] mandoc = {' ', '\n', '.', '\"', '\n', '.', 'T', 'H',
-            (byte) 0x20, '\n'};
+        byte[] mandoc = {' ', '\n', '.', '\"', '\n', '.', 'T', 'H', (byte) 0x20, '\n'};
         ByteArrayInputStream in = new ByteArrayInputStream(mandoc);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
-        assertSame("despite .TH magic,", TroffAnalyzer.class,
-            fa.getClass());
+        assertSame("despite .TH magic,", TroffAnalyzer.class, fa.getClass());
     }
 
     @Test
     public void shouldMatchMandocMagic() throws Exception {
-        byte[] mandoc = {'\n', ' ', '.', '\"', '\n', '.', 'D', 'd',
-            (byte) 0x20, '\n'};
+        byte[] mandoc = {'\n', ' ', '.', '\"', '\n', '.', 'D', 'd', (byte) 0x20, '\n'};
         ByteArrayInputStream in = new ByteArrayInputStream(mandoc);
         AbstractAnalyzer fa = AnalyzerGuru.getAnalyzer(in, "/dummy/file");
-        assertSame("despite .Dd magic,", MandocAnalyzer.class,
-            fa.getClass());
+        assertSame("despite .Dd magic,", MandocAnalyzer.class, fa.getClass());
     }
 }

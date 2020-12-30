@@ -21,7 +21,6 @@
  * Copyright (c) 2005, 2018, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.indexer.search.context;
 
 import java.io.File;
@@ -82,7 +81,12 @@ public class HistoryContext {
             return false;
         }
         File f = new File(filename);
-        return getHistoryContext(HistoryGuru.getInstance().getHistory(f), path, null, hits, null);
+        History history = HistoryGuru.getInstance().getHistory(f);
+        if (history == null) {
+            LOGGER.log(Level.INFO, "Null history got for {0}", f);
+            return false;
+        }
+        return getHistoryContext(history, path, null, hits, null);
 
     }
 

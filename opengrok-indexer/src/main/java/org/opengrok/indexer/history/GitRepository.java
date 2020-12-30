@@ -19,7 +19,7 @@
 
 /*
  * Copyright (c) 2008, 2019, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2020, Chris Fraire <cfraire@me.com>.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  * Portions Copyright (c) 2019, Krystof Tulinger <k.tulinger@seznam.cz>.
  */
 package org.opengrok.indexer.history;
@@ -42,11 +42,14 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+
+import org.opengrok.indexer.configuration.CommandTimeoutType;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.logger.LoggerFactory;
 import org.opengrok.indexer.util.BufferSink;
 import org.opengrok.indexer.util.Executor;
 import org.opengrok.indexer.util.HeadHandler;
+import org.opengrok.indexer.util.LazilyInstantiate;
 import org.opengrok.indexer.util.StringUtils;
 import org.opengrok.indexer.util.Version;
 
@@ -93,6 +96,12 @@ public class GitRepository extends Repository {
      */
     private static final Version MINIMUM_VERSION = new Version(2, 1, 2);
 
+    /**
+     * This is a static replacement for 'working' field. Effectively, check if git is working once in a JVM
+     * instead of calling it for every GitRepository instance.
+     */
+    private static final LazilyInstantiate<Boolean> GIT_IS_WORKING = LazilyInstantiate.using(GitRepository::isGitWorking);
+
     public GitRepository() {
         type = "git";
         /*
@@ -105,6 +114,21 @@ public class GitRepository extends Repository {
 
         ignoredDirs.add(".git");
         ignoredFiles.add(".git");
+    }
+
+    private static boolean isGitWorking() {
+        String repoCommand = getCommand(GitRepository.class, CMD_PROPERTY_KEY, CMD_FALLBACK);
+        Executor exec = new Executor(new String[] {repoCommand, "--version"});
+        if (exec.exec(false) == 0) {
+            final String outputVersion = exec.getOutputString();
+            final String version = outputVersion.replaceAll(".*? version (\\d+(\\.\\d+)*).*", "$1");
+            try {
+                return Version.from(version).compareTo(MINIMUM_VERSION) >= 0;
+            } catch (NumberFormatException ex) {
+                LOGGER.log(Level.WARNING, String.format("Unable to detect git version from %s", outputVersion), ex);
+            }
+        }
+        return false;
     }
 
     /**
@@ -130,7 +154,8 @@ public class GitRepository extends Repository {
         cmd.add("--name-only");
         cmd.add("--pretty=fuller");
         cmd.add(GIT_DATE_OPT);
-        
+        cmd.add("-m");
+
         if (file.isFile() && isHandleRenamedFiles()) {
             cmd.add("--follow");
         }
@@ -153,6 +178,7 @@ public class GitRepository extends Repository {
         cmd.add(RepoCommand);
         cmd.add("log");
         cmd.add("--find-renames=8"); // similarity 80%
+        cmd.add("--diff-filter=R");
         cmd.add("--summary");
         cmd.add(ABBREV_LOG);
         cmd.add("--name-status");
@@ -492,7 +518,7 @@ public class GitRepository extends Repository {
     }
 
     @Override
-    boolean isRepositoryFor(File file, boolean interactive) {
+    boolean isRepositoryFor(File file, CommandTimeoutType cmdType) {
         if (file.isDirectory()) {
             File f = new File(file, ".git");
             return f.exists();
@@ -517,21 +543,7 @@ public class GitRepository extends Repository {
     @Override
     public boolean isWorking() {
         if (working == null) {
-            ensureCommand(CMD_PROPERTY_KEY, CMD_FALLBACK);
-            Executor exec = new Executor(new String[]{RepoCommand, "--version"});
-
-            if (exec.exec(false) == 0) {
-                final String outputVersion = exec.getOutputString();
-                final String version = outputVersion.replaceAll(".*? version (\\d+(\\.\\d+)*).*", "$1");
-                try {
-                    working = Version.from(version).compareTo(MINIMUM_VERSION) >= 0;
-                } catch (NumberFormatException ex) {
-                    LOGGER.log(Level.WARNING, String.format("Unable to detect git version from %s", outputVersion), ex);
-                    working = false;
-                }
-            } else {
-                working = false;
-            }
+            working = GIT_IS_WORKING.get();
         }
 
         return working;
@@ -595,10 +607,10 @@ public class GitRepository extends Repository {
      * reliably in all cases akin to a version control system that uses "linear
      * revision numbering."
      * @param directory a defined directory of the repository
-     * @param interactive true if in interactive mode
+     * @param cmdType command timeout type
      */
     @Override
-    protected void buildTagList(File directory, boolean interactive) {
+    protected void buildTagList(File directory, CommandTimeoutType cmdType) {
         this.tagList = new TreeSet<>();
 
         /*
@@ -612,9 +624,8 @@ public class GitRepository extends Repository {
         argv.add("--simplify-by-decoration");
         argv.add("--pretty=%H:%at:%D:");
 
-        Executor executor = new Executor(argv, directory, interactive ?
-                RuntimeEnvironment.getInstance().getInteractiveCommandTimeout() :
-                RuntimeEnvironment.getInstance().getCommandTimeout());
+        Executor executor = new Executor(argv, directory,
+                RuntimeEnvironment.getInstance().getCommandTimeout(cmdType));
         int status = executor.exec(true, new GitTagParser(this.tagList));
         if (LOGGER.isLoggable(Level.FINEST)) {
             LOGGER.log(Level.FINEST, "Read tags count={0} for {1}",
@@ -630,7 +641,7 @@ public class GitRepository extends Repository {
     }
 
     @Override
-    String determineParent(boolean interactive) throws IOException {
+    String determineParent(CommandTimeoutType cmdType) throws IOException {
         String parent = null;
         File directory = new File(getDirectoryName());
 
@@ -639,9 +650,8 @@ public class GitRepository extends Repository {
         cmd.add(RepoCommand);
         cmd.add("remote");
         cmd.add("-v");
-        Executor executor = new Executor(cmd, directory, interactive ?
-                RuntimeEnvironment.getInstance().getInteractiveCommandTimeout() :
-                RuntimeEnvironment.getInstance().getCommandTimeout());
+        Executor executor = new Executor(cmd, directory,
+                RuntimeEnvironment.getInstance().getCommandTimeout(cmdType));
         executor.exec();
 
         try (BufferedReader in = new BufferedReader(new InputStreamReader(executor.getOutputStream()))) {
@@ -663,7 +673,7 @@ public class GitRepository extends Repository {
     }
 
     @Override
-    String determineBranch(boolean interactive) throws IOException {
+    String determineBranch(CommandTimeoutType cmdType) throws IOException {
         String branch = null;
         File directory = new File(getDirectoryName());
 
@@ -671,9 +681,8 @@ public class GitRepository extends Repository {
         ensureCommand(CMD_PROPERTY_KEY, CMD_FALLBACK);
         cmd.add(RepoCommand);
         cmd.add("branch");
-        Executor executor = new Executor(cmd, directory, interactive ?
-                RuntimeEnvironment.getInstance().getInteractiveCommandTimeout() :
-                RuntimeEnvironment.getInstance().getCommandTimeout());
+        Executor executor = new Executor(cmd, directory,
+                RuntimeEnvironment.getInstance().getCommandTimeout(cmdType));
         executor.exec();
 
         try (BufferedReader in = new BufferedReader(new InputStreamReader(executor.getOutputStream()))) {
@@ -690,7 +699,7 @@ public class GitRepository extends Repository {
     }
 
     @Override
-    public String determineCurrentVersion(boolean interactive) throws IOException {
+    public String determineCurrentVersion(CommandTimeoutType cmdType) throws IOException {
         File directory = new File(getDirectoryName());
         List<String> cmd = new ArrayList<>();
         // The delimiter must not be contained in the date format emitted by

@@ -18,10 +18,9 @@
  */
 
 /*
- * Copyright (c) 2017, 2018 Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2018-2019, Chris Fraire <cfraire@me.com>.
+ * Copyright (c) 2017, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Portions Copyright (c) 2018, 2019, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.indexer.util;
 
 import org.opengrok.indexer.analysis.CtagsReader;
@@ -41,7 +40,7 @@ import java.util.List;
 import static org.junit.Assert.assertNotNull;
 
 /**
- * Represents a container for stream utility methods
+ * Represents a container for stream utility methods.
  */
 public class StreamUtils {
     /**
@@ -187,7 +186,7 @@ public class StreamUtils {
         return result;
     }
 
-    /** private to enforce static */
+    // private to enforce static
     private StreamUtils() {
     }
 }

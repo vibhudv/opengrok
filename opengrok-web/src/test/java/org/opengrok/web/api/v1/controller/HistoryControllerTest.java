@@ -20,7 +20,6 @@
 /*
  * Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.web.api.v1.controller;
 
 import org.glassfish.jersey.server.ResourceConfig;
@@ -137,7 +136,8 @@ public class HistoryControllerTest extends OGKJerseyTest {
                 .queryParam("start", start)
                 .request()
                 .get();
-        HistoryDTO history = response.readEntity(new GenericType<HistoryDTO>() {});
+        HistoryDTO history = response.readEntity(new GenericType<HistoryDTO>() {
+        });
         assertEquals(size, history.getEntries().size());
         assertEquals("Kryštof Tulinger <krystof.tulinger@oracle.com>", history.getEntries().get(0).getAuthor());
 

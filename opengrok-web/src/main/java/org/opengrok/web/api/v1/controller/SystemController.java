@@ -18,15 +18,18 @@
  */
 
 /*
- * Copyright (c) 2018 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, 2020, Oracle and/or its affiliates. All rights reserved.
  */
 package org.opengrok.web.api.v1.controller;
 
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.web.EftarFile;
+import org.opengrok.indexer.logger.LoggerFactory;
+import org.opengrok.indexer.web.PathDescription;
 import org.opengrok.web.api.v1.suggester.provider.service.SuggesterService;
 
 import javax.inject.Inject;
+import javax.validation.Valid;
 import javax.ws.rs.Consumes;
 import javax.ws.rs.POST;
 import javax.ws.rs.PUT;
@@ -34,11 +37,17 @@ import javax.ws.rs.Path;
 import javax.ws.rs.core.MediaType;
 import java.io.IOException;
 import java.util.Collections;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 @Path("/system")
 public class SystemController {
 
     private final RuntimeEnvironment env = RuntimeEnvironment.getInstance();
+
+    private static final Logger LOGGER = LoggerFactory.getLogger(SystemController.class);
 
     @Inject
     private SuggesterService suggester;
@@ -48,7 +57,7 @@ public class SystemController {
     @Consumes(MediaType.TEXT_PLAIN)
     public void refresh(final String project) {
         env.maybeRefreshIndexSearchers(Collections.singleton(project));
-        suggester.rebuild(project);
+        CompletableFuture.runAsync(() -> suggester.rebuild(project));
     }
 
     @PUT
@@ -59,9 +68,10 @@ public class SystemController {
 
     @POST
     @Path("/pathdesc")
-    @Consumes(MediaType.TEXT_PLAIN)
-    public void loadPathDescriptions(final String input) throws IOException {
+    @Consumes(MediaType.APPLICATION_JSON)
+    public void loadPathDescriptions(@Valid final PathDescription[] descriptions) throws IOException {
         EftarFile ef = new EftarFile();
-        ef.create(input, env.getDtagsEftarPath().toString());
+        ef.create(Set.of(descriptions), env.getDtagsEftarPath().toString());
+        LOGGER.log(Level.INFO, "reloaded path descriptions with {0} entries", descriptions.length);
     }
 }

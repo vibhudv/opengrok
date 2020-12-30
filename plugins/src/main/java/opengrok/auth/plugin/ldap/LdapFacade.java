@@ -18,10 +18,12 @@
  */
 
 /*
- * Copyright (c) 2016, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
  */
 package opengrok.auth.plugin.ldap;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -30,7 +32,6 @@ import java.util.Set;
 import java.util.TreeSet;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import java.util.stream.Collectors;
 import javax.naming.CommunicationException;
 import javax.naming.NameNotFoundException;
 import javax.naming.NamingEnumeration;
@@ -42,9 +43,11 @@ import javax.naming.directory.Attributes;
 import javax.naming.directory.SearchControls;
 import javax.naming.directory.SearchResult;
 
+import io.micrometer.core.instrument.Timer;
 import opengrok.auth.plugin.configuration.Configuration;
 import opengrok.auth.plugin.util.WebHook;
 import opengrok.auth.plugin.util.WebHooks;
+import org.opengrok.indexer.Metrics;
 
 public class LdapFacade extends AbstractLdapProvider {
 
@@ -100,9 +103,13 @@ public class LdapFacade extends AbstractLdapProvider {
     private WebHooks webHooks;
 
     private SearchControls controls;
-    private int actualServer = 0;
+    private int actualServer = -1;
     private long errorTimestamp = 0;
     private boolean reported = false;
+
+    private final Timer ldapLookupTimer = Timer.builder("ldap.latency").
+            description("LDAP lookup latency").
+            register(Metrics.getRegistry());
 
     /**
      * Interface for converting LDAP results into user defined types.
@@ -172,7 +179,7 @@ public class LdapFacade extends AbstractLdapProvider {
     }
 
     public LdapFacade(Configuration cfg) {
-        setServers(cfg.getServers(), cfg.getConnectTimeout());
+        setServers(cfg.getServers(), cfg.getConnectTimeout(), cfg.getReadTimeout());
         setInterval(cfg.getInterval());
         setSearchBase(cfg.getSearchBase());
         setWebHooks(cfg.getWebHooks());
@@ -187,15 +194,28 @@ public class LdapFacade extends AbstractLdapProvider {
     }
 
     /**
-     * Finds first working server in the pool.
+     * Go through all servers in the pool and record the first working.
      */
-    private void prepareServers() {
+    void prepareServers() {
+        LOGGER.log(Level.FINER, "checking servers for {0}", this);
         for (int i = 0; i < servers.size(); i++) {
             LdapServer server = servers.get(i);
-            if (server.isWorking()) {
+            if (server.isWorking() && actualServer == -1) {
                 actualServer = i;
-                return;
             }
+        }
+
+        // Close the connections to the inactive servers.
+        LOGGER.log(Level.FINER, "closing unused servers");
+        for (int i = 0; i < servers.size(); i++) {
+            if (i != actualServer) {
+                servers.get(i).close();
+            }
+        }
+
+        if (LOGGER.isLoggable(Level.FINER)) {
+            LOGGER.log(Level.FINER, String.format("server check done (current server: %s)",
+                    actualServer != -1 ? servers.get(actualServer) : "N/A"));
         }
     }
 
@@ -213,12 +233,15 @@ public class LdapFacade extends AbstractLdapProvider {
         return servers;
     }
 
-    public LdapFacade setServers(List<LdapServer> servers, int timeout) {
+    public LdapFacade setServers(List<LdapServer> servers, int connectTimeout, int readTimeout) {
         this.servers = servers;
-        // Inherit connect timeout from server pool configuration.
+        // Inherit timeout values from server pool configuration.
         for (LdapServer server : servers) {
-            if (server.getConnectTimeout() == 0 && timeout != 0) {
-                server.setConnectTimeout(timeout);
+            if (server.getConnectTimeout() == 0 && connectTimeout != 0) {
+                server.setConnectTimeout(connectTimeout);
+            }
+            if (server.getReadTimeout() == 0 && readTimeout != 0) {
+                server.setReadTimeout(readTimeout);
             }
         }
         return this;
@@ -245,7 +268,7 @@ public class LdapFacade extends AbstractLdapProvider {
 
     @Override
     public boolean isConfigured() {
-        return servers != null && servers.size() > 0 && LDAP_FILTER != null && searchBase != null;
+        return servers != null && !servers.isEmpty() && searchBase != null && actualServer != -1;
     }
 
     /**
@@ -292,11 +315,24 @@ public class LdapFacade extends AbstractLdapProvider {
      * @return results transformed with mapper
      */
     private <T> LdapSearchResult<T> lookup(String dn, String filter, String[] attributes, AttributeMapper<T> mapper) throws LdapException {
-        return lookup(dn, filter, attributes, mapper, 0);
+        Instant start = Instant.now();
+        LdapSearchResult<T> res = lookup(dn, filter, attributes, mapper, 0);
+        ldapLookupTimer.record(Duration.between(start, Instant.now()));
+        return res;
     }
 
-    private String getSearchDescription(String dn, String filter, String[] attributes) {
-        return "DN: " + dn + " , filter: " + filter + " , attributes: " + String.join(",", attributes);
+    // available for testing
+    static String getSearchDescription(String dn, String filter, String[] attributes) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("DN: ");
+        builder.append(dn);
+        builder.append(", filter: ");
+        builder.append(filter);
+        if (attributes != null) {
+            builder.append(", attributes: ");
+            builder.append(String.join(",", attributes));
+        }
+        return builder.toString();
     }
 
     /**
@@ -374,7 +410,7 @@ public class LdapFacade extends AbstractLdapProvider {
             actualServer = getNextServer();
             return lookup(dn, filter, attributes, mapper, fail + 1);
         } catch (CommunicationException ex) {
-            LOGGER.log(Level.INFO, String.format("Communication error received on server %s, " +
+            LOGGER.log(Level.WARNING, String.format("Communication error received on server %s, " +
                     "reconnecting to next server.", server), ex);
             closeActualServer();
             actualServer = getNextServer();
@@ -431,9 +467,9 @@ public class LdapFacade extends AbstractLdapProvider {
         return null;
     }
 
+    @Override
     public String toString() {
-        return "{servers=" + String.join(",",
-                getServers().stream().map(LdapServer::getUrl).collect(Collectors.toList())) +
+        return "{server=" + (actualServer != -1 ? servers.get(actualServer) : "no active server") +
                 ", searchBase=" + getSearchBase() + "}";
     }
 }

@@ -18,7 +18,7 @@
  */
 
 /*
- * Copyright (c) 2017, 2018 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2017, 2020, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2018, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.authorization;
@@ -28,12 +28,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.function.Predicate;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+
 import org.opengrok.indexer.configuration.Nameable;
-import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.logger.LoggerFactory;
-import org.opengrok.indexer.web.Statistics;
 
 /**
  * Subclass of {@link AuthorizationEntity}. It implements the methods to
@@ -117,12 +117,10 @@ public class AuthorizationStack extends AuthorizationEntity {
 
     /**
      * Load all authorization entities in this stack.
-     *
      * <p>
-     * If the method is unable to load any of the entities contained in this
+     * <p>If the method is unable to load any of the entities contained in this
      * stack then this stack is marked as failed. Note that it does not affect
      * the authorization decision made by this stack.
-     * </p>
      *
      * @param parameters parameters given in the configuration
      *
@@ -222,10 +220,13 @@ public class AuthorizationStack extends AuthorizationEntity {
             PluginDecisionPredicate pluginPredicate,
             PluginSkippingPredicate skippingPredicate) {
 
-        Statistics stats = RuntimeEnvironment.getInstance().getStatistics();
-        long time = System.currentTimeMillis();
-
         boolean overallDecision = true;
+        boolean optionalFailure = false;
+
+        if (getStack().isEmpty()) {
+            return true;
+        }
+
         for (AuthorizationEntity authEntity : getStack()) {
 
             if (skippingPredicate.shouldSkip(authEntity)) {
@@ -238,23 +239,23 @@ public class AuthorizationStack extends AuthorizationEntity {
                 LOGGER.log(Level.FINEST, "AuthEntity \"{0}\" [{1}] testing a name \"{2}\"",
                         new Object[]{authEntity.getName(), authEntity.getFlag(), entity.getName()});
 
-                boolean pluginDecision = authEntity.isAllowed(entity, pluginPredicate, skippingPredicate);
+                boolean entityDecision = authEntity.isAllowed(entity, pluginPredicate, skippingPredicate);
 
                 LOGGER.log(Level.FINEST, "AuthEntity \"{0}\" [{1}] testing a name \"{2}\" => {3}",
                         new Object[]{authEntity.getName(), authEntity.getFlag(), entity.getName(),
-                                pluginDecision ? "true" : "false"});
+                                entityDecision ? "true" : "false"});
 
-                if (!pluginDecision && authEntity.isRequired()) {
+                if (!entityDecision && authEntity.isRequired()) {
                     // required sets a failure but still invokes all other plugins
                     overallDecision = false;
-                    continue;
-                } else if (!pluginDecision && authEntity.isRequisite()) {
+                } else if (!entityDecision && authEntity.isRequisite()) {
                     // requisite sets a failure and immediately returns the failure
                     overallDecision = false;
                     break;
-                } else if (overallDecision && pluginDecision && authEntity.isSufficient()) {
+                } else if (!entityDecision && authEntity.isOptional()) {
+                    optionalFailure = true;
+                } else if (overallDecision && entityDecision && authEntity.isSufficient()) {
                     // sufficient immediately returns the success
-                    overallDecision = true;
                     break;
                 }
             } catch (AuthorizationException ex) {
@@ -270,8 +271,12 @@ public class AuthorizationStack extends AuthorizationEntity {
 
                 LOGGER.log(Level.FINEST, "AuthEntity \"{0}\" [{1}] testing a name \"{2}\" => {3}",
                         new Object[]{authEntity.getName(), authEntity.getFlag(), entity.getName(),
-                            "false (failed)"});
+                                "false (failed)"});
 
+                if (authEntity.isOptional()) {
+                    optionalFailure = true;
+                    continue;
+                }
                 // set the return value to false for this faulty plugin
                 if (!authEntity.isSufficient()) {
                     overallDecision = false;
@@ -282,17 +287,12 @@ public class AuthorizationStack extends AuthorizationEntity {
                 }
             }
         }
-        time = System.currentTimeMillis() - time;
 
-        stats.addRequestTime(
-                String.format("authorization_in_stack_%s_%s", getName(), overallDecision ? "positive" : "negative"),
-                time);
-        stats.addRequestTime(
-                String.format("authorization_in_stack_%s_%s_of_%s", getName(), overallDecision ? "positive" : "negative", entity.getName()),
-                time);
-        stats.addRequestTime(
-                String.format("authorization_in_stack_%s_of_%s", getName(), entity.getName()),
-                time);
+        if (optionalFailure &&
+                getStack().stream().filter(AuthorizationEntity::isOptional).count() == 1 &&
+                getStack().stream().filter(Predicate.not(AuthorizationEntity::isOptional)).findAny().isEmpty()) {
+            return false;
+        }
 
         return overallDecision;
     }
@@ -301,13 +301,11 @@ public class AuthorizationStack extends AuthorizationEntity {
      * Set the plugin to all classes in this stack which requires this class in
      * the configuration. This creates a new instance of the plugin for each
      * class which needs it.
-     *
      * <p>
-     * This is where the loaded plugin classes get to be a part of the
+     * <p>This is where the loaded plugin classes get to be a part of the
      * authorization process. When the {@link AuthorizationPlugin} does not get
      * its {@link IAuthorizationPlugin} it is marked as failed and returns false
      * to all authorization decisions.
-     * </p>
      *
      * @param plugin the new instance of a plugin
      * @return true if there is such case; false otherwise

@@ -20,7 +20,6 @@
 /*
  * Copyright (c) 2018, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.indexer.analysis.plain;
 
 import java.io.IOException;
@@ -97,11 +96,14 @@ public class DefinitionsTokenStreamTest {
             null);
     }
 
-    private void testDefinitionsVsContent(boolean expandTabs,
-        String sourceResource, String tagsResource, int expectedCount,
-        boolean doSupplement,
-        Map<Integer, SimpleEntry<String, String>> overrides)
-            throws IOException {
+    private void testDefinitionsVsContent(
+            boolean expandTabs,
+            String sourceResource,
+            String tagsResource,
+            int expectedCount,
+            boolean doSupplement,
+            Map<Integer, SimpleEntry<String, String>> overrides
+    ) throws IOException {
 
         StreamSource src = getSourceFromResource(sourceResource);
 
@@ -119,7 +121,7 @@ public class DefinitionsTokenStreamTest {
                     StandardCharsets.UTF_8.name()), tabSize)) {
             int c;
             while ((c = rdr.read()) != -1) {
-                bld.append((char)c);
+                bld.append((char) c);
             }
             source = bld.toString();
         }

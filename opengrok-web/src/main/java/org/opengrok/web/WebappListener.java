@@ -18,17 +18,19 @@
  */
 
 /*
- * Copyright (c) 2007, 2018, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2018-2019, Chris Fraire <cfraire@me.com>.
+ * Copyright (c) 2007, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Portions Copyright (c) 2018, 2019, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.web;
 
+import io.micrometer.core.instrument.Timer;
 import org.opengrok.indexer.Info;
+import org.opengrok.indexer.Metrics;
 import org.opengrok.indexer.analysis.AnalyzerGuru;
 import org.opengrok.indexer.authorization.AuthorizationFramework;
+import org.opengrok.indexer.configuration.CommandTimeoutType;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.logger.LoggerFactory;
-import org.opengrok.indexer.web.PageConfig;
 import org.opengrok.indexer.web.SearchHelper;
 import org.opengrok.web.api.v1.suggester.provider.service.SuggesterServiceFactory;
 
@@ -39,11 +41,10 @@ import javax.servlet.ServletRequestEvent;
 import javax.servlet.ServletRequestListener;
 import java.io.File;
 import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-
-import static org.opengrok.indexer.util.StatisticsUtils.loadStatistics;
-import static org.opengrok.indexer.util.StatisticsUtils.saveStatistics;
 
 /**
  * Initialize webapp context.
@@ -54,12 +55,17 @@ public final class WebappListener
         implements ServletContextListener, ServletRequestListener {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(WebappListener.class);
+    private Timer startupTimer = Timer.builder("webapp.startup.latency").
+                description("web application startup latency").
+                register(Metrics.getPrometheusRegistry());
 
     /**
      * {@inheritDoc}
      */
     @Override
     public void contextInitialized(final ServletContextEvent servletContextEvent) {
+        Instant start = Instant.now();
+
         ServletContext context = servletContextEvent.getServletContext();
         RuntimeEnvironment env = RuntimeEnvironment.getInstance();
 
@@ -71,7 +77,7 @@ public final class WebappListener
             throw new Error("CONFIGURATION parameter missing in the web.xml file");
         } else {
             try {
-                env.readConfiguration(new File(config), true);
+                env.readConfiguration(new File(config), CommandTimeoutType.WEBAPP_START);
             } catch (IOException ex) {
                 LOGGER.log(Level.WARNING, "Configuration error. Failed to read config file: ", ex);
             }
@@ -89,24 +95,13 @@ public final class WebappListener
             LOGGER.warning("Didn't find Universal Ctags for --webappCtags");
         }
 
-        try {
-            loadStatistics();
-        } catch (IOException ex) {
-            LOGGER.log(Level.INFO, "Could not load statistics from a file.", ex);
-        }
-
         String pluginDirectory = env.getPluginDirectory();
         if (pluginDirectory != null && env.isAuthorizationWatchdog()) {
             env.watchDog.start(new File(pluginDirectory));
         }
 
         env.startExpirationTimer();
-
-        try {
-            loadStatistics();
-        } catch (IOException ex) {
-            LOGGER.log(Level.INFO, "Could not load statistics from a file.", ex);
-        }
+        startupTimer.record(Duration.between(start, Instant.now()));
     }
 
     /**
@@ -123,15 +118,18 @@ public final class WebappListener
         } catch (InterruptedException e) {
             LOGGER.log(Level.WARNING, "Could not shutdown revision executor", e);
         }
-        try {
-            saveStatistics();
-        } catch (IOException ex) {
-            LOGGER.log(Level.SEVERE, "Could not save statistics into a file.", ex);
-        }
 
         // need to explicitly close the suggester service because it might have scheduled rebuild which could prevent
         // the web application from closing
         SuggesterServiceFactory.getDefault().close();
+    }
+
+    /**
+     * {@inheritDoc}
+     */
+    @Override
+    public void requestInitialized(ServletRequestEvent e) {
+        // pass
     }
 
     /**
@@ -146,13 +144,5 @@ public final class WebappListener
         }
 
         AnalyzerGuru.returnAnalyzers();
-    }
-
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void requestInitialized(ServletRequestEvent e) {
-        // pass through
     }
 }

@@ -17,10 +17,10 @@
  * CDDL HEADER END
  */
 
- /*
-  * Copyright (c) 2006, 2019, Oracle and/or its affiliates. All rights reserved.
-  * Portions Copyright (c) 2017-2020, Chris Fraire <cfraire@me.com>.
-  */
+/*
+ * Copyright (c) 2006, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
+ */
 package org.opengrok.indexer.configuration;
 
 import static org.opengrok.indexer.configuration.Configuration.makeXMLStringAsConfiguration;
@@ -29,6 +29,7 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -40,6 +41,7 @@ import java.util.Set;
 import java.util.SortedSet;
 import java.util.TreeSet;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArraySet;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
@@ -62,8 +64,6 @@ import org.opengrok.indexer.authorization.AuthorizationFramework;
 import org.opengrok.indexer.authorization.AuthorizationStack;
 import org.opengrok.indexer.history.HistoryGuru;
 import org.opengrok.indexer.history.RepositoryInfo;
-import org.opengrok.indexer.index.Filter;
-import org.opengrok.indexer.index.IgnoredNames;
 import org.opengrok.indexer.index.IndexDatabase;
 import org.opengrok.indexer.index.IndexerParallelizer;
 import org.opengrok.indexer.logger.LoggerFactory;
@@ -74,7 +74,6 @@ import org.opengrok.indexer.util.LazilyInstantiate;
 import org.opengrok.indexer.util.PathUtils;
 import org.opengrok.indexer.util.ResourceLock;
 import org.opengrok.indexer.web.Prefix;
-import org.opengrok.indexer.web.Statistics;
 import org.opengrok.indexer.web.Util;
 import org.opengrok.indexer.web.messages.Message;
 import org.opengrok.indexer.web.messages.MessagesContainer;
@@ -101,7 +100,6 @@ public final class RuntimeEnvironment {
     private final Map<String, SearcherManager> searcherManagerMap = new ConcurrentHashMap<>();
 
     private String configURI;
-    private Statistics statistics = new Statistics();
     IncludeFiles includeFiles = new IncludeFiles();
     private final MessagesContainer messagesContainer = new MessagesContainer();
 
@@ -127,6 +125,14 @@ public final class RuntimeEnvironment {
 
     public WatchDogService watchDog;
 
+    private final Set<ConfigurationChangedListener> listeners = new CopyOnWriteArraySet<>();
+
+    public List<String> getSubFiles() {
+        return subFiles;
+    }
+
+    private List<String> subFiles = new ArrayList<>();
+
     /**
      * Creates a new instance of RuntimeEnvironment. Private to ensure a
      * singleton anti-pattern.
@@ -144,6 +150,16 @@ public final class RuntimeEnvironment {
     // Instance of authorization framework and its lock.
     private AuthorizationFramework authFramework;
     private final Object authFrameworkLock = new Object();
+
+    private boolean indexer;
+
+    public boolean isIndexer() {
+        return indexer;
+    }
+
+    public void setIndexer(boolean indexer) {
+        this.indexer = indexer;
+    }
 
     /** Gets the thread pool used for multi-project searches. */
     public ExecutorService getSearchExecutor() {
@@ -174,7 +190,7 @@ public final class RuntimeEnvironment {
 
     public void shutdownRevisionExecutor() throws InterruptedException {
         getRevisionExecutor().shutdownNow();
-        getRevisionExecutor().awaitTermination(getCommandTimeout(), TimeUnit.SECONDS);
+        getRevisionExecutor().awaitTermination(getIndexerCommandTimeout(), TimeUnit.SECONDS);
     }
 
     /**
@@ -188,6 +204,13 @@ public final class RuntimeEnvironment {
 
     public IndexerParallelizer getIndexerParallelizer() {
         return lzIndexerParallelizer.get();
+    }
+
+    /**
+     * Gets an instance associated to this environment.
+     */
+    public PathAccepter getPathAccepter() {
+        return new PathAccepter(getIgnoredNames(), getIncludedNames());
     }
 
     private String getCanonicalPath(String s) {
@@ -222,37 +245,59 @@ public final class RuntimeEnvironment {
         syncWriteConfiguration(nestingMaximum, Configuration::setNestingMaximum);
     }
 
-    public int getCommandTimeout() {
-        return syncReadConfiguration(Configuration::getCommandTimeout);
+    public int getCommandTimeout(CommandTimeoutType cmdType) {
+        switch (cmdType) {
+            case INDEXER:
+                return getIndexerCommandTimeout();
+            case INTERACTIVE:
+                return getInteractiveCommandTimeout();
+            case WEBAPP_START:
+                return getWebappStartCommandTimeout();
+            case RESTFUL:
+                return getRestfulCommandTimeout();
+        }
+
+        throw new IllegalArgumentException("invalid command timeout type");
     }
 
-    public void setCommandTimeout(int commandTimeout) {
-        syncWriteConfiguration(commandTimeout, Configuration::setCommandTimeout);
+    public int getRestfulCommandTimeout() {
+        return syncReadConfiguration(Configuration::getRestfulCommandTimeout);
+    }
+
+    public void setRestfulCommandTimeout(int timeout) {
+        syncWriteConfiguration(timeout, Configuration::setWebappStartCommandTimeout);
+    }
+
+    public int getWebappStartCommandTimeout() {
+        return syncReadConfiguration(Configuration::getWebappStartCommandTimeout);
+    }
+
+    public void setWebappStartCommandTimeout(int timeout) {
+        syncWriteConfiguration(timeout, Configuration::setWebappStartCommandTimeout);
+    }
+
+    public int getIndexerCommandTimeout() {
+        return syncReadConfiguration(Configuration::getIndexerCommandTimeout);
+    }
+
+    public void setIndexerCommandTimeout(int timeout) {
+        syncWriteConfiguration(timeout, Configuration::setIndexerCommandTimeout);
     }
 
     public int getInteractiveCommandTimeout() {
         return syncReadConfiguration(Configuration::getInteractiveCommandTimeout);
     }
 
-    public void setInteractiveCommandTimeout(int interactiveCommandTimeout) {
-        syncWriteConfiguration(interactiveCommandTimeout,
-                Configuration::setInteractiveCommandTimeout);
+    public void setInteractiveCommandTimeout(int timeout) {
+        syncWriteConfiguration(timeout, Configuration::setInteractiveCommandTimeout);
     }
 
     public long getCtagsTimeout() {
         return syncReadConfiguration(Configuration::getCtagsTimeout);
     }
 
-    public void setCtagsTimeout(long ctagsTimeout) {
-        syncWriteConfiguration(ctagsTimeout, Configuration::setCtagsTimeout);
-    }
-    
-    public Statistics getStatistics() {
-        return statistics;
-    }
-
-    public void setStatistics(Statistics statistics) {
-        this.statistics = statistics;
+    public void setCtagsTimeout(long timeout) {
+        syncWriteConfiguration(timeout, Configuration::setCtagsTimeout);
     }
 
     public void setLastEditedDisplayMode(boolean lastEditedDisplayMode) {
@@ -366,8 +411,8 @@ public final class RuntimeEnvironment {
             throw new FileNotFoundException("sourceRoot is not defined");
         }
 
-        String maybeRelPath = PathUtils.getRelativeToCanonical(file.getPath(),
-                sourceRoot, getAllowedSymlinks(), getCanonicalRoots());
+        String maybeRelPath = PathUtils.getRelativeToCanonical(file.toPath(),
+                Paths.get(sourceRoot), getAllowedSymlinks(), getCanonicalRoots());
         File maybeRelFile = new File(maybeRelPath);
         if (!maybeRelFile.isAbsolute()) {
             /*
@@ -704,8 +749,7 @@ public final class RuntimeEnvironment {
      */
     public void setRepositories(String... dir) {
         List<RepositoryInfo> repos = new ArrayList<>(HistoryGuru.getInstance().
-                addRepositories(Arrays.stream(dir).map(File::new).toArray(File[]::new),
-                        getIgnoredNames()));
+                addRepositories(Arrays.stream(dir).map(File::new).toArray(File[]::new)));
         setRepositories(repos);
     }
 
@@ -1332,12 +1376,12 @@ public final class RuntimeEnvironment {
     /**
      * Read configuration from a file and put it into effect.
      * @param file the file to read
-     * @param interactive true if run in interactive mode
+     * @param cmdType command timeout type
      * @throws IOException I/O
      */
-    public void readConfiguration(File file, boolean interactive) throws IOException {
+    public void readConfiguration(File file, CommandTimeoutType cmdType) throws IOException {
         // The following method handles the locking.
-        setConfiguration(Configuration.read(file), null, interactive);
+        setConfiguration(Configuration.read(file), null, cmdType);
     }
 
     /**
@@ -1484,16 +1528,16 @@ public final class RuntimeEnvironment {
      * @param configuration what configuration to use
      */
     public void setConfiguration(Configuration configuration) {
-        setConfiguration(configuration, null, false);
+        setConfiguration(configuration, null, CommandTimeoutType.INDEXER);
     }
 
     /**
      * Sets the configuration and performs necessary actions.
      * @param configuration new configuration
-     * @param interactive true if in interactive mode
+     * @param cmdType command timeout type
      */
-    public void setConfiguration(Configuration configuration, boolean interactive) {
-        setConfiguration(configuration, null, interactive);
+    public void setConfiguration(Configuration configuration, CommandTimeoutType cmdType) {
+        setConfiguration(configuration, null, cmdType);
     }
 
     /**
@@ -1501,9 +1545,9 @@ public final class RuntimeEnvironment {
      *
      * @param configuration new configuration
      * @param subFileList   list of repositories
-     * @param interactive   true if in interactive mode
+     * @param cmdType       command timeout type
      */
-    public synchronized void setConfiguration(Configuration configuration, List<String> subFileList, boolean interactive) {
+    public synchronized void setConfiguration(Configuration configuration, List<String> subFileList, CommandTimeoutType cmdType) {
         try (ResourceLock resourceLock = configLock.writeLockAsResource()) {
             //noinspection ConstantConditions to avoid warning of no reference to auto-closeable
             assert resourceLock != null;
@@ -1515,11 +1559,9 @@ public final class RuntimeEnvironment {
 
         // Set the working repositories in HistoryGuru.
         if (subFileList != null) {
-            histGuru.invalidateRepositories(
-                    getRepositories(), subFileList, interactive);
+            histGuru.invalidateRepositories(getRepositories(), subFileList, cmdType);
         } else {
-            histGuru.invalidateRepositories(getRepositories(),
-                    interactive);
+            histGuru.invalidateRepositories(getRepositories(), cmdType);
         }
 
         // The invalidation of repositories above might have excluded some
@@ -1541,14 +1583,6 @@ public final class RuntimeEnvironment {
 
     public IncludeFiles getIncludeFiles() {
         return includeFiles;
-    }
-
-    public String getStatisticsFilePath() {
-        return syncReadConfiguration(Configuration::getStatisticsFilePath);
-    }
-
-    public void setStatisticsFilePath(String statisticsFilePath) {
-        syncWriteConfiguration(statisticsFilePath, Configuration::setStatisticsFilePath);
     }
 
     /**
@@ -1583,10 +1617,12 @@ public final class RuntimeEnvironment {
     /**
      * Re-apply the configuration.
      * @param reindex is the message result of reindex
-     * @param interactive true if in interactive mode
+     * @param cmdType command timeout type
+     * @see #applyConfig(org.opengrok.indexer.configuration.Configuration,
+     * boolean, CommandTimeoutType) applyConfig(config, reindex, cmdType)
      */
-    public void applyConfig(boolean reindex, boolean interactive) {
-        applyConfig(configuration, reindex, interactive);
+    public void applyConfig(boolean reindex, CommandTimeoutType cmdType) {
+        applyConfig(configuration, reindex, cmdType);
     }
 
     /**
@@ -1596,11 +1632,11 @@ public final class RuntimeEnvironment {
      *
      * @param configuration XML configuration
      * @param reindex is the message result of reindex
-     * @param interactive true if in interactive mode
+     * @param cmdType command timeout type
      * @see #applyConfig(org.opengrok.indexer.configuration.Configuration,
-     * boolean, boolean) applyConfig(config, reindex, interactive)
+     * boolean, CommandTimeoutType) applyConfig(config, reindex, cmdType)
      */
-    public void applyConfig(String configuration, boolean reindex, boolean interactive) {
+    public void applyConfig(String configuration, boolean reindex, CommandTimeoutType cmdType) {
         Configuration config;
         try {
             config = makeXMLStringAsConfiguration(configuration);
@@ -1609,7 +1645,7 @@ public final class RuntimeEnvironment {
             return;
         }
 
-        applyConfig(config, reindex, interactive);
+        applyConfig(config, reindex, cmdType);
     }
 
     /**
@@ -1617,12 +1653,15 @@ public final class RuntimeEnvironment {
      * have come from the Indexer (in which case some extra work is needed) or
      * is it just a request to set new configuration in place.
      *
+     * The classes that have registered their listener will be pinged here.
+     * @see ConfigurationChangedListener
+     *
      * @param config the incoming configuration
      * @param reindex is the message result of reindex
-     * @param interactive true if in interactive mode
+     * @param cmdType command timeout type
      */
-    public void applyConfig(Configuration config, boolean reindex, boolean interactive) {
-        setConfiguration(config, interactive);
+    public void applyConfig(Configuration config, boolean reindex, CommandTimeoutType cmdType) {
+        setConfiguration(config, cmdType);
         LOGGER.log(Level.INFO, "Configuration updated");
 
         if (reindex) {
@@ -1648,6 +1687,10 @@ public final class RuntimeEnvironment {
         getAuthorizationFramework().reload();
 
         messagesContainer.setMessageLimit(getMessageLimit());
+
+        for (ConfigurationChangedListener l : listeners) {
+            l.onConfigurationChanged();
+        }
     }
 
     public void setIndexTimestamp() throws IOException {
@@ -1862,6 +1905,14 @@ public final class RuntimeEnvironment {
         syncWriteConfiguration(suggesterConfig, Configuration::setSuggesterConfig);
     }
 
+    public StatsdConfig getStatsdConfig() {
+        return syncReadConfiguration(Configuration::getStatsdConfig);
+    }
+
+    public void setStatsdConfig(StatsdConfig statsdConfig) {
+        syncWriteConfiguration(statsdConfig, Configuration::setStatsdConfig);
+    }
+
     /**
      * Applies the specified function to the runtime configuration, after having
      * obtained the configuration read-lock (and releasing afterward).
@@ -1895,5 +1946,17 @@ public final class RuntimeEnvironment {
 
     private int getMessageLimit() {
         return syncReadConfiguration(Configuration::getMessageLimit);
+    }
+
+    public Set<String> getAuthenticationTokens() {
+        return Collections.unmodifiableSet(syncReadConfiguration(Configuration::getAuthenticationTokens));
+    }
+
+    public void setAuthenticationTokens(Set<String> tokens) {
+        syncWriteConfiguration(tokens, Configuration::setAuthenticationTokens);
+    }
+
+    public void registerListener(ConfigurationChangedListener listener) {
+        listeners.add(listener);
     }
 }

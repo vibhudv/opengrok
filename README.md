@@ -1,9 +1,9 @@
 
-Copyright (c) 2006, 2019 Oracle and/or its affiliates. All rights reserved.
+Copyright (c) 2006, 2020 Oracle and/or its affiliates. All rights reserved.
 
 
 # OpenGrok - a wicked fast source browser
-[![Travis status](https://travis-ci.org/oracle/opengrok.svg?branch=master)](https://travis-ci.org/oracle/opengrok)
+[![Github actions build](https://github.com/oracle/opengrok/workflows/Build/badge.svg?branch=master)](https://github.com/oracle/opengrok/actions)
 [![Coverage status](https://coveralls.io/repos/oracle/opengrok/badge.svg?branch=master)](https://coveralls.io/r/oracle/opengrok?branch=master)
 [![SonarQube status](https://sonarcloud.io/api/project_badges/measure?project=org.opengrok%3Aopengrok-top&metric=alert_status)](https://sonarcloud.io/dashboard?id=org.opengrok%3Aopengrok-top)
 [![Total alerts](https://img.shields.io/lgtm/alerts/g/oracle/opengrok.svg?logo=lgtm&logoWidth=18)](https://lgtm.com/projects/g/oracle/opengrok/alerts/)
@@ -31,6 +31,14 @@ Official page of the project is on:
 
 See https://github.com/oracle/opengrok/wiki/How-to-setup-OpenGrok
 
+### 2. 1. Updating
+
+OpenGrok uses [semantic versioning](https://semver.org/) and the version components further indicate more details about updating to newer version. The version scheme is x.y.z and change in any component is interpreted as:
+
+ - x - major backwards incompatible update
+ - y - full clean reindex of your repositories is needed (e. g. index format has changed)
+ - z - redeploy web application
+
 ## 3. Information for developers
 
 See https://github.com/oracle/opengrok/wiki/Developer-intro and https://github.com/oracle/opengrok/wiki/Developers
@@ -43,15 +51,7 @@ For full list of contributors see https://github.com/oracle/opengrok/graphs/cont
 
 ## 5. Contact us
 
-Feel free to participate in discussion on the mailing lists:
-
-  `opengrok-users@yahoogroups.com` (user topics)
-
-  `opengrok-dev@yahoogroups.com` (developers' discussion)
-
-To subscribe, send email to `<mailing_list_name>-subscribe@yahoogroups.com`
-
-There are also Slack channels on https://opengrok.slack.com/
+There are Slack channels on https://opengrok.slack.com/
 
 ## 6. Run as container
 

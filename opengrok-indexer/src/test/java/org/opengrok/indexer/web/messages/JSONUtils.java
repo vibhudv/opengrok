@@ -18,9 +18,8 @@
  */
 
 /*
- * Copyright (c) 2019 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2019, Oracle and/or its affiliates. All rights reserved.
  */
-
 package org.opengrok.indexer.web.messages;
 
 import com.fasterxml.jackson.core.JsonFactory;
@@ -52,8 +51,9 @@ public final class JSONUtils {
                 }
             }
 
-            if (token != JsonToken.FIELD_NAME)
+            if (token != JsonToken.FIELD_NAME) {
                 continue;
+            }
 
             fields.add(jParser.getCurrentName());
         }

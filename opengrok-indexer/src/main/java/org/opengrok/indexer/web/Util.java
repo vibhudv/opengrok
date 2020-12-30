@@ -19,11 +19,10 @@
 
 /*
  * Copyright (c) 2005, 2019, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright 2011 Jens Elkner.
- * Portions Copyright (c) 2017-2020, Chris Fraire <cfraire@me.com>.
+ * Portions Copyright (c) 2011, Jens Elkner.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  * Portions Copyright (c) 2019, Krystof Tulinger <k.tulinger@seznam.cz>.
  */
-
 package org.opengrok.indexer.web;
 
 import static org.opengrok.indexer.index.Indexer.PATH_SEPARATOR;
@@ -842,10 +841,15 @@ public final class Util {
         return url.substring(0, url.lastIndexOf(PATH_SEPARATOR)); // remove date from end
     }
 
+    /**
+     * Sanitizes Windows path delimiters (if {@link PlatformUtils#isWindows()}
+     * is {@code true}) as
+     * {@link org.opengrok.indexer.index.Indexer#PATH_SEPARATOR} in order not
+     * to conflict with the Lucene escape character and also so {@code path}
+     * appears as a correctly formed URI in search results.
+     */
     public static String fixPathIfWindows(String path) {
-        if (PlatformUtils.isWindows()) {
-            // Sanitize Windows path delimiters in order not to conflict with Lucene escape character
-            // and also so the path appears as correctly formed URI in the search results.
+        if (path != null && PlatformUtils.isWindows()) {
             return path.replace(File.separatorChar, PATH_SEPARATOR);
         }
         return path;

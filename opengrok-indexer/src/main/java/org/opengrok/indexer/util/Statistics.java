@@ -18,38 +18,80 @@
  */
 
 /*
- * Copyright (c) 2014, 2018 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2014, 2020, Oracle and/or its affiliates. All rights reserved.
  */
-
 package org.opengrok.indexer.util;
 
+import io.micrometer.core.instrument.MeterRegistry;
+import io.micrometer.core.instrument.Timer;
+import org.opengrok.indexer.Metrics;
+
+import java.time.Duration;
+import java.time.Instant;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import static org.opengrok.indexer.util.StringUtils.getReadableTime;
 
 public class Statistics {
-        
-  private final long startTime;  
 
-  public Statistics() {
-      startTime = System.currentTimeMillis();    
+    private final Instant startTime;
+
+    public Statistics() {
+      startTime = Instant.now();
   }
 
-  public void report(Logger log, String msg) {
-      long stopTime = System.currentTimeMillis();
-      String time_str = StringUtils.getReadableTime(stopTime - startTime);
-      log.log(Level.INFO, msg + " (took {0})", time_str);
-  }
+    private void logIt(Logger logger, Level logLevel, String msg, Duration duration) {
+        String timeStr = StringUtils.getReadableTime(duration.toMillis());
+        logger.log(logLevel, msg + " (took {0})", timeStr);
+    }
 
-  public void report(Logger log) {
-    long stopTime = System.currentTimeMillis() - startTime;
-    log.log(Level.INFO, "Total time: {0}", getReadableTime(stopTime));
+    /**
+     * Log a message along with how much time it took since the constructor was called.
+     * @param logger logger instance
+     * @param logLevel log level
+     * @param msg message string
+     */
+    public void report(Logger logger, Level logLevel, String msg) {
+        logIt(logger, logLevel, msg, Duration.between(startTime, Instant.now()));
+    }
 
-    System.gc();
-    Runtime r = Runtime.getRuntime();
-    long mb = 1024L * 1024;
-    log.log(Level.INFO, "Final Memory: {0}M/{1}M", 
-            new Object[]{(r.totalMemory() - r.freeMemory()) / 
-                    mb, r.totalMemory() / mb});    
-  }    
+    /**
+     * Log a message and trigger statsd message along with how much time it took since the constructor was called.
+     * @param logger logger instance
+     * @param logLevel log level
+     * @param msg message string
+     * @param meterName name of the meter
+     */
+    public void report(Logger logger, Level logLevel, String msg, String meterName) {
+        Duration duration = Duration.between(startTime, Instant.now());
+
+        logIt(logger, logLevel, msg, duration);
+
+        MeterRegistry registry = Metrics.getRegistry();
+        if (registry != null) {
+            Timer.builder(meterName).
+                    register(registry).
+                    record(duration);
+        }
+    }
+
+    /**
+     * log a message along with how much time it took since the constructor was called.
+     * The log level is {@code INFO}.
+     * @param logger logger instance
+     * @param msg message string
+     * @param meterName name of the meter
+     */
+    public void report(Logger logger, String msg, String meterName) {
+        report(logger, Level.INFO, msg, meterName);
+    }
+
+    /**
+     * log a message along with how much time it took since the constructor was called.
+     * The log level is {@code INFO}.
+     * @param logger logger instance
+     * @param msg message string
+     */
+    public void report(Logger logger, String msg) {
+        report(logger, Level.INFO, msg);
+    }
 }

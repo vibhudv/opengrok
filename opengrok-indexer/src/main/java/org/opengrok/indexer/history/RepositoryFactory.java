@@ -19,7 +19,7 @@
 
 /*
  * Copyright (c) 2008, 2019, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017, 2019-2020, Chris Fraire <cfraire@me.com>.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.history;
 
@@ -35,9 +35,10 @@ import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
+import org.opengrok.indexer.configuration.CommandTimeoutType;
 import org.opengrok.indexer.configuration.Configuration;
+import org.opengrok.indexer.configuration.IgnoredNames;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
-import org.opengrok.indexer.index.IgnoredNames;
 import org.opengrok.indexer.logger.LoggerFactory;
 import org.opengrok.indexer.util.ForbiddenSymlinkException;
 
@@ -106,35 +107,52 @@ public final class RepositoryFactory {
      * @return a list that contains non-{@code null} values only
      */
     public static List<Class<? extends Repository>> getRepositoryClasses() {
-        RuntimeEnvironment env = RuntimeEnvironment.getInstance();
-
         ArrayList<Class<? extends Repository>> list = new ArrayList<>(repositories.length);
         for (int i = repositories.length - 1; i >= 0; i--) {
             Class<? extends Repository> clazz = repositories[i].getClass();
-            if (isEnabled(clazz, env)) {
+            if (isEnabled(clazz)) {
                 list.add(clazz);
             }
         }
-        
+
         return list;
     }
 
     /**
-     * Calls {@link #getRepository(File, boolean)} with {@code file} and {@code false}.
+     * Gets a list of all disabled repository handlers.
+     * @return a list that contains non-{@code null} values only
+     */
+    public static List<Class<? extends Repository>> getDisabledRepositoryClasses() {
+        ArrayList<Class<? extends Repository>> list = new ArrayList<>();
+        for (int i = repositories.length - 1; i >= 0; i--) {
+            Class<? extends Repository> clazz = repositories[i].getClass();
+            if (!isEnabled(clazz)) {
+                list.add(clazz);
+            }
+        }
+
+        return list;
+    }
+
+    /**
+     * Calls {@link #getRepository(File, CommandTimeoutType)} with {@code file} and {@code false}.
      */
     public static Repository getRepository(File file)
             throws InstantiationException, IllegalAccessException, NoSuchMethodException, InvocationTargetException,
             IOException, ForbiddenSymlinkException {
-        return getRepository(file, false);
+        return getRepository(file, CommandTimeoutType.INDEXER);
     }
 
     /**
-     * Calls {@link #getRepository(File, boolean, boolean)} with {@code file}, {@code interactive}, and {@code false}.
+     * Calls {@link #getRepository(File, CommandTimeoutType, boolean)} with {@code file}, {@code interactive}, and {@code false}.
+     * @param file file
+     * @param cmdType command timeout type
+     * @return repository object
      */
-    public static Repository getRepository(File file, boolean interactive)
+    public static Repository getRepository(File file, CommandTimeoutType cmdType)
             throws IllegalAccessException, InvocationTargetException, ForbiddenSymlinkException, InstantiationException,
             NoSuchMethodException, IOException {
-        return getRepository(file, interactive, false);
+        return getRepository(file, cmdType, false);
     }
 
     /**
@@ -148,7 +166,7 @@ public final class RepositoryFactory {
      * use interactive command timeout (as specified in {@code Configuration}).
      *
      * @param file File that might contain a repository
-     * @param interactive a value indicating if running in interactive mode
+     * @param cmdType command timeout type
      * @param isNested a value indicating if a nestable {@link Repository} is required
      * @return Correct repository for the given file
      * @throws InstantiationException in case we cannot create the repository object
@@ -158,7 +176,7 @@ public final class RepositoryFactory {
      * @throws IOException when resolving repository path
      * @throws ForbiddenSymlinkException when resolving repository path
      */
-    public static Repository getRepository(File file, boolean interactive, boolean isNested)
+    public static Repository getRepository(File file, CommandTimeoutType cmdType, boolean isNested)
             throws InstantiationException, IllegalAccessException, NoSuchMethodException, InvocationTargetException,
             IOException, ForbiddenSymlinkException {
 
@@ -169,8 +187,8 @@ public final class RepositoryFactory {
         for (Repository referenceRepo : repositories) {
             Class<? extends Repository> clazz = referenceRepo.getClass();
 
-            if ((!isNested || referenceRepo.isNestable()) && isEnabled(clazz, env) &&
-                    referenceRepo.isRepositoryFor(file, interactive)) {
+            if ((!isNested || referenceRepo.isNestable()) && isEnabled(clazz) &&
+                    referenceRepo.isRepositoryFor(file, cmdType)) {
                 repo = clazz.getDeclaredConstructor().newInstance();
 
                 if (env.isProjectsEnabled() && relFile.equals(File.separator)) {
@@ -197,7 +215,7 @@ public final class RepositoryFactory {
 
                 if (repo.getParent() == null || repo.getParent().length() == 0) {
                     try {
-                        repo.setParent(repo.determineParent(interactive));
+                        repo.setParent(repo.determineParent(cmdType));
                     } catch (IOException ex) {
                         LOGGER.log(Level.WARNING,
                                 "Failed to get parent for {0}: {1}",
@@ -207,7 +225,7 @@ public final class RepositoryFactory {
 
                 if (repo.getBranch() == null || repo.getBranch().length() == 0) {
                     try {
-                        repo.setBranch(repo.determineBranch(interactive));
+                        repo.setBranch(repo.determineBranch(cmdType));
                     } catch (IOException ex) {
                         LOGGER.log(Level.WARNING,
                                 "Failed to get branch for {0}: {1}",
@@ -217,7 +235,7 @@ public final class RepositoryFactory {
 
                 if (repo.getCurrentVersion() == null || repo.getCurrentVersion().length() == 0) {
                     try {
-                        repo.setCurrentVersion(repo.determineCurrentVersion(interactive));
+                        repo.setCurrentVersion(repo.determineCurrentVersion(cmdType));
                     } catch (IOException ex) {
                         LOGGER.log(Level.WARNING,
                                 "Failed to determineCurrentVersion for {0}: {1}",
@@ -228,7 +246,7 @@ public final class RepositoryFactory {
                 // If this repository displays tags only for files changed by tagged
                 // revision, we need to prepare list of all tags in advance.
                 if (env.isTagsEnabled() && repo.hasFileBasedTags()) {
-                    repo.buildTagList(file, interactive);
+                    repo.buildTagList(file, cmdType);
                 }
 
                 repo.fillFromProject();
@@ -245,7 +263,7 @@ public final class RepositoryFactory {
      * found.
      *
      * @param info Information about the repository
-     * @param interactive true if used in interactive mode
+     * @param cmdType command timeout type
      * @return Correct repository for the given file
      * @throws InstantiationException in case we cannot create the repository object
      * @throws IllegalAccessException in case no permissions to repository
@@ -254,10 +272,10 @@ public final class RepositoryFactory {
      * @throws IOException when resolving repository path
      * @throws ForbiddenSymlinkException when resolving repository path
      */
-    public static Repository getRepository(RepositoryInfo info, boolean interactive)
+    public static Repository getRepository(RepositoryInfo info, CommandTimeoutType cmdType)
             throws InstantiationException, IllegalAccessException, NoSuchMethodException, InvocationTargetException,
             IOException, ForbiddenSymlinkException {
-        return getRepository(new File(info.getDirectoryName()), interactive);
+        return getRepository(new File(info.getDirectoryName()), cmdType);
     }
 
     /**
@@ -274,7 +292,7 @@ public final class RepositoryFactory {
     public static void initializeIgnoredNames(RuntimeEnvironment env) {
         IgnoredNames ignoredNames = env.getIgnoredNames();
         for (Repository repo : repositories) {
-            if (isEnabled(repo.getClass(), env)) {
+            if (isEnabled(repo.getClass())) {
                 for (String file : repo.getIgnoredFiles()) {
                     ignoredNames.add("f:" + file);
                 }
@@ -299,8 +317,8 @@ public final class RepositoryFactory {
         return null;
     }
 
-    private static boolean isEnabled(Class<? extends Repository> clazz, RuntimeEnvironment env) {
-        Set<String> disabledRepos = env.getDisabledRepositories();
+    private static boolean isEnabled(Class<? extends Repository> clazz) {
+        Set<String> disabledRepos = RuntimeEnvironment.getInstance().getDisabledRepositories();
         return disabledRepos == null || !disabledRepos.contains(clazz.getSimpleName());
     }
 }

@@ -18,10 +18,9 @@
  */
 
 /*
- * Copyright (c) 2020 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2020, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.web.api.v1.controller;
 
 import org.glassfish.jersey.server.ResourceConfig;
@@ -123,7 +122,8 @@ public class AnnotationControllerTest extends OGKJerseyTest {
         List<AnnotationController.AnnotationDTO> annotations = target("annotation")
                 .queryParam("path", path)
                 .request()
-                .get(new GenericType<List<AnnotationController.AnnotationDTO>>() {});
+                .get(new GenericType<List<AnnotationController.AnnotationDTO>>() {
+                });
         assertEquals(getNumLines(new File(env.getSourceRootFile(), path)), annotations.size());
         assertEquals("Trond Norbye", annotations.get(0).getAuthor());
         List<String> ids = annotations.stream().
@@ -146,7 +146,8 @@ public class AnnotationControllerTest extends OGKJerseyTest {
                 .queryParam("path", path)
                 .queryParam("revision", "bb74b7e8")
                 .request()
-                .get(new GenericType<List<AnnotationController.AnnotationDTO>>() {});
+                .get(new GenericType<List<AnnotationController.AnnotationDTO>>() {
+                });
         assertEquals(8, annotations.size());
         assertEquals("Trond Norbye", annotations.get(0).getAuthor());
         Set<String> ids = annotations.stream().

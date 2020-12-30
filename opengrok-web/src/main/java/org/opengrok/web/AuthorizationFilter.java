@@ -18,7 +18,7 @@
  */
 
 /*
- * Copyright (c) 2016, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.web;
@@ -34,9 +34,9 @@ import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
+
 import org.opengrok.indexer.configuration.Project;
 import org.opengrok.indexer.logger.LoggerFactory;
-import org.opengrok.indexer.web.PageConfig;
 import org.opengrok.indexer.web.Laundromat;
 import org.opengrok.web.api.v1.RestApp;
 
@@ -45,17 +45,20 @@ public class AuthorizationFilter implements Filter {
     private static final Logger LOGGER = LoggerFactory.getLogger(AuthorizationFilter.class);
 
     @Override
-    public void init(FilterConfig fc) throws ServletException {
+    public void init(FilterConfig fc) {
     }
 
+    /**
+     * All RESTful API requests are allowed here because they go through
+     * {@link org.opengrok.web.api.v1.filter.IncomingFilter}.
+     * The /search endpoint will go through authorization via SearchEngine.search()
+     * so does not have to be exempted here.
+     */
     @Override
     public void doFilter(ServletRequest sr, ServletResponse sr1, FilterChain fc) throws IOException, ServletException {
         HttpServletRequest httpReq = (HttpServletRequest) sr;
         HttpServletResponse httpRes = (HttpServletResponse) sr1;
 
-        // All RESTful API requests are allowed for now (also see LocalhostFilter).
-        // The /search endpoint will go through authorization via SearchEngine.search()
-        // so does not have to be exempted here.
         if (httpReq.getServletPath().startsWith(RestApp.API_PATH)) {
             if (LOGGER.isLoggable(Level.FINER)) {
                 LOGGER.log(Level.FINER, "Allowing request to {0} in {1}",
@@ -67,7 +70,6 @@ public class AuthorizationFilter implements Filter {
         }
 
         PageConfig config = PageConfig.get(httpReq);
-        long processTime = System.currentTimeMillis();
 
         Project p = config.getProject();
         if (p != null && !config.isAllowed(p)) {
@@ -81,19 +83,6 @@ public class AuthorizationFilter implements Filter {
                             Laundromat.launderLog(httpReq.getRequestURI()));
                 }
             }
-
-            /*
-             * Add the request to the statistics. This is called just once for a
-             * single request otherwise the next filter will count the same
-             * request twice ({@link StatisticsFilter#collectStats}).
-             *
-             * In this branch of the if statement the filter processing stopped
-             * and does not follow to the StatisticsFilter.
-             */
-            config.getEnv().getStatistics().addRequest();
-            config.getEnv().getStatistics().addRequest("requests_forbidden");
-            config.getEnv().getStatistics().addRequestTime("requests_forbidden",
-                    System.currentTimeMillis() - processTime);
 
             if (!config.getEnv().getIncludeFiles().getForbiddenIncludeFileContent(false).isEmpty()) {
                 sr.getRequestDispatcher("/eforbidden").forward(sr, sr1);

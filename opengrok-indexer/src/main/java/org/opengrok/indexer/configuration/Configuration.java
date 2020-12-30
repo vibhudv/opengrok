@@ -18,8 +18,8 @@
  */
 
 /*
- * Copyright (c) 2007, 2018, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2020, Chris Fraire <cfraire@me.com>.
+ * Copyright (c) 2007, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  * Portions Copyright (c) 2020, Aleksandr Kirillov <alexkirillovsamara@gmail.com>.
  */
 package org.opengrok.indexer.configuration;
@@ -59,8 +59,6 @@ import java.util.stream.Collectors;
 import org.opengrok.indexer.authorization.AuthControlFlag;
 import org.opengrok.indexer.authorization.AuthorizationStack;
 import org.opengrok.indexer.history.RepositoryInfo;
-import org.opengrok.indexer.index.Filter;
-import org.opengrok.indexer.index.IgnoredNames;
 import org.opengrok.indexer.logger.LoggerFactory;
 
 
@@ -78,7 +76,6 @@ public final class Configuration {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(Configuration.class);
     public static final String PLUGIN_DIRECTORY_DEFAULT = "plugins";
-    public static final String STATISTICS_FILE_DEFAULT = "statistics.json";
 
     /**
      * A check if a pattern contains at least one pair of parentheses meaning
@@ -213,13 +210,14 @@ public final class Configuration {
     private boolean chattyStatusPage;
     private final Map<String, String> cmds;  // repository type -> command
     private int tabSize;
-    private int commandTimeout; // in seconds
+    private int indexerCommandTimeout; // in seconds
     private int interactiveCommandTimeout; // in seconds
+    private int webappStartCommandTimeout; // in seconds
+    private int restfulCommandTimeout; // in seconds
     private long ctagsTimeout; // in seconds
     private boolean scopesEnabled;
     private boolean projectsEnabled;
     private boolean foldingEnabled;
-    private String statisticsFilePath;
     /*
      * Set to false if we want to disable fetching history of individual files
      * (by running appropriate SCM command) when the history is not found
@@ -240,9 +238,9 @@ public final class Configuration {
      * The directory hierarchy depth to limit the scanning for repositories.
      * E.g. if the /mercurial/ directory (relative to source root) is a repository
      * and /mercurial/usr/closed/ is sub-repository, the latter will be discovered
-     * only if the depth is set to 3 or greater.
+     * only if the depth is set to 2 or greater.
      */
-    public static final int defaultScanningDepth = 3;
+    public static final int defaultScanningDepth = 2;
 
     /**
      * The name of the eftar file relative to the <var>DATA_ROOT</var>, which
@@ -301,7 +299,11 @@ public final class Configuration {
 
     private SuggesterConfig suggesterConfig = new SuggesterConfig();
 
+    private StatsdConfig statsdConfig = new StatsdConfig();
+
     private Set<String> disabledRepositories;
+
+    private Set<String> authenticationTokens; // for non-localhost API access
 
     /*
      * types of handling history for remote SCM repositories:
@@ -377,22 +379,58 @@ public final class Configuration {
         this.nestingMaximum = nestingMaximum;
     }
 
-    public int getCommandTimeout() {
-        return commandTimeout;
+    public int getIndexerCommandTimeout() {
+        return indexerCommandTimeout;
     }
 
     /**
      * Set the command timeout to a new value.
      *
-     * @param commandTimeout the new value
+     * @param timeout the new value
      * @throws IllegalArgumentException when the timeout is negative
      */
-    public void setCommandTimeout(int commandTimeout) throws IllegalArgumentException {
-        if (commandTimeout < 0) {
+    public void setIndexerCommandTimeout(int timeout) throws IllegalArgumentException {
+        if (timeout < 0) {
             throw new IllegalArgumentException(
-                    String.format(NEGATIVE_NUMBER_ERROR, "commandTimeout", commandTimeout));
+                    String.format(NEGATIVE_NUMBER_ERROR, "commandTimeout", timeout));
         }
-        this.commandTimeout = commandTimeout;
+        this.indexerCommandTimeout = timeout;
+    }
+
+    public int getRestfulCommandTimeout() {
+        return restfulCommandTimeout;
+    }
+
+    /**
+     * Set the command timeout to a new value.
+     *
+     * @param timeout the new value
+     * @throws IllegalArgumentException when the timeout is negative
+     */
+    public void setRestfulCommandTimeout(int timeout) throws IllegalArgumentException {
+        if (timeout < 0) {
+            throw new IllegalArgumentException(
+                    String.format(NEGATIVE_NUMBER_ERROR, "restfulCommandTimeout", timeout));
+        }
+        this.restfulCommandTimeout = timeout;
+    }
+
+    public int getWebappStartCommandTimeout() {
+        return webappStartCommandTimeout;
+    }
+
+    /**
+     * Set the command timeout to a new value.
+     *
+     * @param timeout the new value
+     * @throws IllegalArgumentException when the timeout is negative
+     */
+    public void setWebappStartCommandTimeout(int timeout) throws IllegalArgumentException {
+        if (timeout < 0) {
+            throw new IllegalArgumentException(
+                    String.format(NEGATIVE_NUMBER_ERROR, "webappStartCommandTimeout", timeout));
+        }
+        this.webappStartCommandTimeout = timeout;
     }
 
     public int getInteractiveCommandTimeout() {
@@ -402,15 +440,15 @@ public final class Configuration {
     /**
      * Set the interactive command timeout to a new value.
      *
-     * @param commandTimeout the new value
+     * @param timeout the new value
      * @throws IllegalArgumentException when the timeout is negative
      */
-    public void setInteractiveCommandTimeout(int commandTimeout) throws IllegalArgumentException {
-        if (commandTimeout < 0) {
+    public void setInteractiveCommandTimeout(int timeout) throws IllegalArgumentException {
+        if (timeout < 0) {
             throw new IllegalArgumentException(
-                    String.format(NEGATIVE_NUMBER_ERROR, "interactiveCommandTimeout", commandTimeout));
+                    String.format(NEGATIVE_NUMBER_ERROR, "interactiveCommandTimeout", timeout));
         }
-        this.interactiveCommandTimeout = commandTimeout;
+        this.interactiveCommandTimeout = timeout;
     }
 
     public long getCtagsTimeout() {
@@ -424,19 +462,11 @@ public final class Configuration {
      * @throws IllegalArgumentException when the timeout is negative
      */
     public void setCtagsTimeout(long timeout) throws IllegalArgumentException {
-        if (commandTimeout < 0) {
+        if (timeout < 0) {
             throw new IllegalArgumentException(
                     String.format(NEGATIVE_NUMBER_ERROR, "ctagsTimeout", timeout));
         }
         this.ctagsTimeout = timeout;
-    }
-
-    public String getStatisticsFilePath() {
-        return statisticsFilePath;
-    }
-
-    public void setStatisticsFilePath(String statisticsFilePath) {
-        this.statisticsFilePath = statisticsFilePath;
     }
 
     public boolean isLastEditedDisplayMode() {
@@ -473,13 +503,16 @@ public final class Configuration {
         cmds = new HashMap<>();
         setAllowLeadingWildcard(true);
         setAllowedSymlinks(new HashSet<>());
+        setAuthenticationTokens(new HashSet<>());
         setAuthorizationWatchdogEnabled(false);
         //setBugPage("http://bugs.myserver.org/bugdatabase/view_bug.do?bug_id=");
         setBugPattern("\\b([12456789][0-9]{6})\\b");
         setCachePages(5);
         setCanonicalRoots(new HashSet<>());
-        setCommandTimeout(600); // 10 minutes
+        setIndexerCommandTimeout(600); // 10 minutes
+        setRestfulCommandTimeout(60);
         setInteractiveCommandTimeout(30);
+        setWebappStartCommandTimeout(5);
         setCompressXref(true);
         setContextLimit((short) 10);
         //contextSurround is default(short)
@@ -526,7 +559,6 @@ public final class Configuration {
         setScanningDepth(defaultScanningDepth); // default depth of scanning for repositories
         setScopesEnabled(true);
         setSourceRoot(null);
-        setStatisticsFilePath(null);
         //setTabSize(4);
         setTagsEnabled(false);
         //setUserPage("http://www.myserver.org/viewProfile.jspa?username=");
@@ -850,20 +882,15 @@ public final class Configuration {
     /**
      * Sets data root.
      *
-     * This method also sets the pluginDirectory if it is not already set and
-     * also this method sets the statisticsFilePath if it is not already set
+     * This method also sets the pluginDirectory if it is not already set.
      *
      * @see #setPluginDirectory(java.lang.String)
-     * @see #setStatisticsFilePath(java.lang.String)
      *
      * @param dataRoot data root path
      */
     public void setDataRoot(String dataRoot) {
         if (dataRoot != null && getPluginDirectory() == null) {
             setPluginDirectory(dataRoot + "/../" + PLUGIN_DIRECTORY_DEFAULT);
-        }
-        if (dataRoot != null && getStatisticsFilePath() == null) {
-            setStatisticsFilePath(dataRoot + "/" + STATISTICS_FILE_DEFAULT);
         }
         this.dataRoot = dataRoot;
     }
@@ -1199,7 +1226,7 @@ public final class Configuration {
      * @return path to the file holding compiled path descriptions for the web application
      */
     public Path getDtagsEftarPath() {
-        return Paths.get(getDataRoot(), "index", EFTAR_DTAGS_NAME);
+        return Paths.get(getDataRoot(), EFTAR_DTAGS_NAME);
     }
 
     public String getCTagsExtraOptionsFile() {
@@ -1293,12 +1320,31 @@ public final class Configuration {
         this.suggesterConfig = config;
     }
 
+    public StatsdConfig getStatsdConfig() {
+        return statsdConfig;
+    }
+
+    public void setStatsdConfig(final StatsdConfig config) {
+        if (config == null) {
+            throw new IllegalArgumentException("Cannot set Statsd configuration to null");
+        }
+        this.statsdConfig = config;
+    }
+
     public Set<String> getDisabledRepositories() {
         return disabledRepositories;
     }
 
     public void setDisabledRepositories(Set<String> disabledRepositories) {
         this.disabledRepositories = disabledRepositories;
+    }
+
+    public Set<String> getAuthenticationTokens() {
+        return authenticationTokens;
+    }
+
+    public void setAuthenticationTokens(Set<String> tokens) {
+        this.authenticationTokens = tokens;
     }
 
     /**

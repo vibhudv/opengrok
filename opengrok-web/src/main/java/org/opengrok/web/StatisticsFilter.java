@@ -17,13 +17,14 @@
  * CDDL HEADER END
  */
 
- /*
- * Copyright (c) 2016, 2018, Oracle and/or its affiliates. All rights reserved.
+/*
+ * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
  */
 package org.opengrok.web;
 
 import java.io.IOException;
-import java.util.logging.Logger;
+import java.time.Duration;
+import java.time.Instant;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
@@ -32,75 +33,78 @@ import javax.servlet.ServletRequest;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import org.opengrok.indexer.logger.LoggerFactory;
-import org.opengrok.indexer.web.PageConfig;
-import org.opengrok.indexer.web.Prefix;
+
+import io.micrometer.core.instrument.DistributionSummary;
+import io.micrometer.core.instrument.Timer;
+import org.opengrok.indexer.Metrics;
 import org.opengrok.indexer.web.SearchHelper;
-import org.opengrok.indexer.web.Statistics;
 
 public class StatisticsFilter implements Filter {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(StatisticsFilter.class);
-    private static final String TIME_ATTRIBUTE = "statistics_time_start";
+    static final String REQUESTS_METRIC = "requests";
+
+    private final DistributionSummary requests = Metrics.getPrometheusRegistry().summary(REQUESTS_METRIC);
+
+    private final Timer emptySearch = Timer.builder("search.latency").
+            tags("outcome", "empty").
+            register(Metrics.getPrometheusRegistry());
+    private final Timer successfulSearch = Timer.builder("search.latency").
+            tags("outcome", "success").
+            register(Metrics.getPrometheusRegistry());
 
     @Override
     public void init(FilterConfig fc) throws ServletException {
     }
 
     @Override
-    public void doFilter(ServletRequest sr, ServletResponse sr1, FilterChain fc)
+    public void doFilter(ServletRequest servletRequest, ServletResponse servletResponse, FilterChain fc)
             throws IOException, ServletException {
-        HttpServletRequest httpReq = (HttpServletRequest) sr;
-        HttpServletResponse httpRes = (HttpServletResponse) sr1;
+
+        requests.record(1);
+
+        HttpServletRequest httpReq = (HttpServletRequest) servletRequest;
+
+        Instant start = Instant.now();
 
         PageConfig config = PageConfig.get(httpReq);
-        config.setRequestAttribute(TIME_ATTRIBUTE, System.currentTimeMillis());
 
-        fc.doFilter(sr, sr1);
+        fc.doFilter(servletRequest, servletResponse);
 
-        if (httpReq.getRequestURI().replace(httpReq.getContextPath(), "").equals("/")
-                || httpReq.getRequestURI().replace(httpReq.getContextPath(), "").equals("")) {
-            collectStats(httpReq, "root");
-        } else if (config.getPrefix() != Prefix.UNKNOWN) {
-            String prefix = config.getPrefix().toString().substring(1);
-            collectStats(httpReq, prefix);
+        measure((HttpServletResponse) servletResponse, httpReq, Duration.between(start, Instant.now()), config);
+    }
+
+    private void measure(HttpServletResponse httpResponse, HttpServletRequest httpReq,
+                         Duration duration, PageConfig config) {
+        String category;
+        if (isRoot(httpReq)) {
+            category = "root";
+        } else {
+            String prefix = config.getPrefix().toString();
+            if (prefix.isEmpty()) {
+                category = "unknown";
+            } else {
+                category = prefix.substring(1);
+            }
+        }
+
+        Timer categoryTimer = Timer.builder("requests.latency").
+                tags("category", category, "code", String.valueOf(httpResponse.getStatus())).
+                register(Metrics.getPrometheusRegistry());
+        categoryTimer.record(duration);
+
+        SearchHelper helper = (SearchHelper) config.getRequestAttribute(SearchHelper.REQUEST_ATTR);
+        if (helper != null) {
+            if (helper.hits == null || helper.hits.length == 0) {
+                emptySearch.record(duration);
+            } else {
+                successfulSearch.record(duration);
+            }
         }
     }
 
-    protected void collectStats(HttpServletRequest req, String category) {
-        Object o;
-        long processTime;
-        PageConfig config = PageConfig.get(req);
-        Statistics stats = config.getEnv().getStatistics();
-
-        /**
-         * Add the request to the statistics. Be aware of the colliding call in
-         * {@code AuthorizationFilter#doFilter}.
-         */
-        stats.addRequest();
-
-        if ((o = config.getRequestAttribute(TIME_ATTRIBUTE)) != null) {
-            processTime = System.currentTimeMillis() - (long) o;
-
-            stats.addRequestTime("*", processTime); // add to all
-            stats.addRequestTime(category, processTime); // add this category
-
-            /* supplementary categories */
-            if (config.getProject() != null) {
-                stats.addRequestTime("viewing_of_" + config.getProject().getName(), processTime);
-            }
-
-            SearchHelper helper = (SearchHelper) config.getRequestAttribute(SearchHelper.REQUEST_ATTR);
-            if (helper != null) {
-                if (helper.hits == null || helper.hits.length == 0) {
-                    // empty search
-                    stats.addRequestTime("empty_search", processTime);
-                } else {
-                    // successful search
-                    stats.addRequestTime("successful_search", processTime);
-                }
-            }
-        }
+    private boolean isRoot(final HttpServletRequest httpReq) {
+        return httpReq.getRequestURI().replace(httpReq.getContextPath(), "").equals("/")
+                || httpReq.getRequestURI().replace(httpReq.getContextPath(), "").equals("");
     }
 
     @Override

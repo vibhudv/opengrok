@@ -19,7 +19,7 @@
 
 /*
  * Copyright (c) 2016, 2018, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2018, Chris Fraire <cfraire@me.com>.
+ * Portions Copyright (c) 2017, 2018, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.authorization;
 
@@ -654,6 +654,87 @@ public class AuthorizationFrameworkTest {
                 NewTest(false, createAllowedProject()),
                 NewTest(false, createAllowedGroup()))
             },
+            {
+                new StackSetup(
+                    NewStack(AuthControlFlag.REQUIRED,
+                        new AuthorizationPlugin(AuthControlFlag.OPTIONAL, createTestFailingPlugin()),
+                        new AuthorizationPlugin(AuthControlFlag.REQUIRED, createAllowedPrefixPlugin())),
+                    // optional plugin returns false
+                    // required plugin returns false => false
+                    NewTest(false, createUnallowedProject()),
+                    NewTest(false, createUnallowedGroup()),
+                    // optional plugin returns false
+                    // required plugin returns true => true
+                    NewTest(true, createAllowedProject()),
+                    NewTest(true, createAllowedGroup()))
+            },
+            {
+                new StackSetup(
+                    NewStack(AuthControlFlag.REQUIRED,
+                            new AuthorizationPlugin(AuthControlFlag.OPTIONAL, createAllowedPrefixPlugin()),
+                            new AuthorizationPlugin(AuthControlFlag.REQUIRED, createNotAllowedPrefixPlugin())),
+                    // optional plugin returns false
+                    // required plugin returns true => true
+                    NewTest(true, createUnallowedProject()),
+                    NewTest(true, createUnallowedGroup()),
+                    // optional plugin returns true
+                    // required plugin returns false => false
+                    NewTest(false, createAllowedProject()),
+                    NewTest(false, createAllowedGroup()))
+            },
+            {
+                new StackSetup(
+                    NewStack(AuthControlFlag.REQUIRED,
+                            new AuthorizationPlugin(AuthControlFlag.OPTIONAL, createTestFailingPlugin())
+                            ),
+                    // optional plugin returns false => false
+                    NewTest(false, createUnallowedProject()),
+                    NewTest(false, createUnallowedGroup()),
+                    NewTest(false, createAllowedProject()),
+                    NewTest(false, createAllowedGroup()))
+            },
+            {
+                new StackSetup(
+                    NewStack(AuthControlFlag.REQUIRED,
+                            new AuthorizationPlugin(AuthControlFlag.OPTIONAL, createAllowedPrefixPlugin())
+                    ),
+                    // optional plugin returns false => false
+                    NewTest(false, createUnallowedProject()),
+                    NewTest(false, createUnallowedGroup()),
+                    // optional plugin returns true => true
+                    NewTest(true, createAllowedProject()),
+                    NewTest(true, createAllowedGroup()))
+            },
+            {
+                new StackSetup(
+                    NewStack(AuthControlFlag.REQUIRED,
+                            new AuthorizationPlugin(AuthControlFlag.OPTIONAL, createAllowedPrefixPlugin()),
+                            new AuthorizationPlugin(AuthControlFlag.OPTIONAL, createNotAllowedPrefixPlugin())
+                    ),
+                    // optional plugin1 returns false
+                    // optional plugin2 returns true => true
+                    NewTest(true, createUnallowedProject()),
+                    NewTest(true, createUnallowedGroup()),
+                    // optional plugin1 returns true
+                    // optional plugin2 returns false => true
+                    NewTest(true, createAllowedProject()),
+                    NewTest(true, createAllowedGroup()))
+            },
+            {
+                new StackSetup(
+                    NewStack(AuthControlFlag.REQUIRED,
+                            new AuthorizationPlugin(AuthControlFlag.OPTIONAL, createAllowedPrefixPlugin()),
+                            new AuthorizationPlugin(AuthControlFlag.SUFFICIENT, createNotAllowedPrefixPlugin())
+                    ),
+                    // optional plugin returns false
+                    // sufficient plugin returns true => true
+                    NewTest(true, createUnallowedProject()),
+                    NewTest(true, createUnallowedGroup()),
+                    // optional plugin returns true
+                    // sufficient plugin returns false => true
+                    NewTest(true, createAllowedProject()),
+                    NewTest(true, createAllowedGroup()))
+            },
         };
     }
 
@@ -668,11 +749,13 @@ public class AuthorizationFrameworkTest {
         for (TestCase innerSetup : setup.setup) {
             String entityName = (innerSetup.entity == null ? "null" : innerSetup.entity.getName());
             try {
+                // group test
                 actual = framework.isAllowed(innerSetup.request, (Group) innerSetup.entity);
                 Assert.assertEquals(String.format(format, setup.toString(), innerSetup.expected, actual, entityName),
                         innerSetup.expected,
                         actual);
             } catch (ClassCastException ex) {
+                // project test
                 actual = framework.isAllowed(innerSetup.request, (Project) innerSetup.entity);
                 Assert.assertEquals(String.format(format, setup.toString(), innerSetup.expected, actual, entityName),
                         innerSetup.expected,
@@ -681,27 +764,23 @@ public class AuthorizationFrameworkTest {
         }
     }
 
-    static private Project createAllowedProject() {
-        Project p = new Project("allowed" + "_" + "project" + Math.random());
-        return p;
+    private static Project createAllowedProject() {
+        return new Project("allowed" + "_" + "project" + Math.random());
     }
 
-    static private Project createUnallowedProject() {
-        Project p = new Project("not_allowed" + "_" + "project" + Math.random());
-        return p;
+    private static Project createUnallowedProject() {
+        return new Project("not_allowed" + "_" + "project" + Math.random());
     }
 
-    static private Group createAllowedGroup() {
-        Group g = new Group("allowed" + "_" + "group_" + RANDOM.nextInt());
-        return g;
+    private static Group createAllowedGroup() {
+        return new Group("allowed" + "_" + "group_" + RANDOM.nextInt());
     }
 
-    static private Group createUnallowedGroup() {
-        Group g = new Group("not_allowed" + "_" + "group_" + RANDOM.nextInt());
-        return g;
+    private static Group createUnallowedGroup() {
+        return new Group("not_allowed" + "_" + "group_" + RANDOM.nextInt());
     }
 
-    static private HttpServletRequest createRequest() {
+    private static HttpServletRequest createRequest() {
         return new DummyHttpServletRequest() {
             @Override
             public Map<String, String[]> getParameterMap() {
@@ -710,7 +789,7 @@ public class AuthorizationFrameworkTest {
         };
     }
 
-    static private IAuthorizationPlugin createAllowedPrefixPlugin() {
+    private static IAuthorizationPlugin createAllowedPrefixPlugin() {
         return new TestPlugin() {
             @Override
             public boolean isAllowed(HttpServletRequest request, Project project) {
@@ -729,7 +808,7 @@ public class AuthorizationFrameworkTest {
         };
     }
 
-    static private IAuthorizationPlugin createNotAllowedPrefixPlugin() {
+    private static IAuthorizationPlugin createNotAllowedPrefixPlugin() {
         return new TestPlugin() {
             @Override
             public boolean isAllowed(HttpServletRequest request, Project project) {
@@ -748,7 +827,7 @@ public class AuthorizationFrameworkTest {
         };
     }
 
-    static private IAuthorizationPlugin createLoadFailingPlugin() {
+    private static IAuthorizationPlugin createLoadFailingPlugin() {
         return new TestPlugin() {
             @Override
             public void load(Map<String, Object> parameters) {
@@ -773,7 +852,7 @@ public class AuthorizationFrameworkTest {
         };
     }
 
-    static private IAuthorizationPlugin createTestFailingPlugin() {
+    private static IAuthorizationPlugin createTestFailingPlugin() {
         return new TestPlugin() {
             @Override
             public boolean isAllowed(HttpServletRequest request, Project project) {
@@ -793,7 +872,7 @@ public class AuthorizationFrameworkTest {
         };
     }
 
-    static public class TestCase {
+    public static class TestCase {
 
         public boolean expected;
         public HttpServletRequest request;
@@ -811,7 +890,7 @@ public class AuthorizationFrameworkTest {
         }
     }
 
-    static public class StackSetup {
+    public static class StackSetup {
 
         public AuthorizationStack stack;
         public List<TestCase> setup;
@@ -824,13 +903,12 @@ public class AuthorizationFrameworkTest {
         @Override
         public String toString() {
             return stack.getFlag().toString().toUpperCase(Locale.ROOT) + "[" +
-                    printStack(stack) + "] " + "-> {\n" + setup.stream().map(
-                    (t) -> t.toString()).collect(Collectors.joining(",\n")) +
-                    "\n" + "}";
+                    printStack(stack) + "] " + "-> {\n" +
+                    setup.stream().map(TestCase::toString).collect(Collectors.joining(",\n")) + "\n" + "}";
         }
 
         private String printStack(AuthorizationStack s) {
-            String x = new String();
+            String x = "";
             for (AuthorizationEntity entity : s.getStack()) {
                 if (entity instanceof AuthorizationPlugin) {
                     x += ((AuthorizationPlugin) entity).getPlugin().toString() + ", ";
@@ -844,7 +922,7 @@ public class AuthorizationFrameworkTest {
         }
     }
 
-    static private AuthorizationStack NewStack(AuthControlFlag flag, AuthorizationEntity... entities) {
+    private static AuthorizationStack NewStack(AuthControlFlag flag, AuthorizationEntity... entities) {
         AuthorizationStack stack = new AuthorizationStack(flag, "stack-" + entities.hashCode());
         for (AuthorizationEntity entity : entities) {
             stack.add(entity);
@@ -852,11 +930,11 @@ public class AuthorizationFrameworkTest {
         return stack;
     }
 
-    static private TestCase NewTest(boolean expected, Nameable entity) {
+    private static TestCase NewTest(boolean expected, Nameable entity) {
         return NewTest(expected, createRequest(), entity);
     }
 
-    static private TestCase NewTest(boolean expected, HttpServletRequest request, Nameable entity) {
+    private static TestCase NewTest(boolean expected, HttpServletRequest request, Nameable entity) {
         return new TestCase(expected, request, entity);
     }
 }

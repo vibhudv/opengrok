@@ -18,8 +18,8 @@
  */
 
 /*
- * Copyright (c) 2008, 2019, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2020, Chris Fraire <cfraire@me.com>.
+ * Copyright (c) 2008, 2020, Oracle and/or its affiliates. All rights reserved.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.index;
 
@@ -83,14 +83,15 @@ import org.apache.lucene.store.NativeFSLockFactory;
 import org.apache.lucene.store.NoLockFactory;
 import org.apache.lucene.store.SimpleFSLockFactory;
 import org.apache.lucene.util.BytesRef;
+import org.jetbrains.annotations.NotNull;
 import org.opengrok.indexer.analysis.AbstractAnalyzer;
 import org.opengrok.indexer.analysis.AnalyzerFactory;
 import org.opengrok.indexer.analysis.AnalyzerGuru;
 import org.opengrok.indexer.analysis.Ctags;
 import org.opengrok.indexer.analysis.Definitions;
+import org.opengrok.indexer.configuration.PathAccepter;
 import org.opengrok.indexer.configuration.Project;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
-import org.opengrok.indexer.history.HistoryException;
 import org.opengrok.indexer.history.HistoryGuru;
 import org.opengrok.indexer.history.Repository;
 import org.opengrok.indexer.logger.LoggerFactory;
@@ -137,8 +138,7 @@ public class IndexDatabase {
     private PendingFileCompleter completer;
     private TermsEnum uidIter;
     private PostingsEnum postsIter;
-    private IgnoredNames ignoredNames;
-    private Filter includedNames;
+    private PathAccepter pathAccepter;
     private AnalyzerGuru analyzerGuru;
     private File xrefDir;
     private boolean interrupted;
@@ -307,8 +307,7 @@ public class IndexDatabase {
 
             lockfact = pickLockFactory(env);
             indexDirectory = FSDirectory.open(indexDir.toPath(), lockfact);
-            ignoredNames = env.getIgnoredNames();
-            includedNames = env.getIncludedNames();
+            pathAccepter = env.getPathAccepter();
             analyzerGuru = new AnalyzerGuru();
             xrefDir = new File(env.getDataRootFile(), XREF_DIR);
             listeners = new CopyOnWriteArrayList<>();
@@ -355,27 +354,38 @@ public class IndexDatabase {
         // Successfully indexed the project. The message is sent even if
         // the project's isIndexed() is true because it triggers RepositoryInfo
         // refresh.
-        if (project != null) {
-            // Also need to store the correct value in configuration
-            // when indexer writes it to a file.
-            project.setIndexed(true);
+        if (project == null) {
+            return;
+        }
 
-            if (env.getConfigURI() != null) {
-                Response r = ClientBuilder.newClient()
-                        .target(env.getConfigURI())
-                        .path("api")
-                        .path("v1")
-                        .path("projects")
-                        .path(Util.URIEncode(project.getName()))
-                        .path("indexed")
-                        .request()
-                        .put(Entity.text(""));
+        // Also need to store the correct value in configuration
+        // when indexer writes it to a file.
+        project.setIndexed(true);
 
-                if (r.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
-                    LOGGER.log(Level.WARNING, "Couldn''t notify the webapp that project {0} was indexed: {1}",
-                            new Object[] {project, r});
-                }
-            }
+        if (env.getConfigURI() == null) {
+            return;
+        }
+
+        Response r;
+        try {
+            r = ClientBuilder.newClient()
+                    .target(env.getConfigURI())
+                    .path("api")
+                    .path("v1")
+                    .path("projects")
+                    .path(Util.URIEncode(project.getName()))
+                    .path("indexed")
+                    .request()
+                    .put(Entity.text(""));
+        } catch (RuntimeException e) {
+            LOGGER.log(Level.WARNING, String.format("Couldn''t notify the webapp that project %s was indexed",
+                    project), e);
+            return;
+        }
+
+        if (r.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
+            LOGGER.log(Level.WARNING, "Couldn''t notify the webapp that project {0} was indexed: {1}",
+                    new Object[] {project, r});
         }
     }
 
@@ -426,19 +436,6 @@ public class IndexDatabase {
                     sourceRoot = env.getSourceRootFile();
                 } else {
                     sourceRoot = new File(env.getSourceRootFile(), dir);
-                }
-
-                if (env.isHistoryEnabled()) {
-                    try {
-                        HistoryGuru.getInstance().ensureHistoryCacheExists(
-                            sourceRoot);
-                    } catch (HistoryException ex) {
-                        String exmsg = String.format(
-                            "Failed to ensureHistoryCacheExists() for %s",
-                            sourceRoot);
-                        LOGGER.log(Level.SEVERE, exmsg, ex);
-                        continue;
-                    }
                 }
 
                 dir = Util.fixPathIfWindows(dir);
@@ -502,6 +499,8 @@ public class IndexDatabase {
                 }
             }
 
+            // The RuntimeException thrown from the block above can prevent the writing from completing.
+            // This is deliberate.
             try {
                 finishWriting();
             } catch (IOException e) {
@@ -740,8 +739,28 @@ public class IndexDatabase {
         fa.setFoldingEnabled(env.isFoldingEnabled());
 
         Document doc = new Document();
-        try (Writer xrefOut = newXrefWriter(fa, path)) {
+        CountingWriter xrefOut = null;
+        try {
+            String xrefAbs = null;
+            File transientXref = null;
+            if (env.isGenerateHtml()) {
+                xrefAbs = getXrefPath(path);
+                transientXref = new File(TandemPath.join(xrefAbs,
+                        PendingFileCompleter.PENDING_EXTENSION));
+                xrefOut = newXrefWriter(path, transientXref, env.isCompressXref());
+            }
+
             analyzerGuru.populateDocument(doc, file, path, fa, xrefOut);
+
+            // Avoid producing empty xref files.
+            if (xrefOut != null && xrefOut.getCount() > 0) {
+                PendingFileRenaming ren = new PendingFileRenaming(xrefAbs,
+                        transientXref.getAbsolutePath());
+                completer.add(ren);
+            } else if (xrefOut != null) {
+                LOGGER.log(Level.FINER, "xref for {0} would be empty, will remove", path);
+                completer.add(new PendingFileDeletion(transientXref.toString()));
+            }
         } catch (InterruptedException e) {
             LOGGER.log(Level.WARNING, "File ''{0}'' interrupted--{1}",
                 new Object[]{path, e.getMessage()});
@@ -760,6 +779,9 @@ public class IndexDatabase {
             return;
         } finally {
             fa.setCtags(null);
+            if (xrefOut != null) {
+                xrefOut.close();
+            }
         }
 
         try {
@@ -819,15 +841,7 @@ public class IndexDatabase {
         ret.localRelPath = null;
         String absolutePath = file.getAbsolutePath();
 
-        if (!includedNames.isEmpty()
-                && // the filter should not affect directory names
-                (!(file.isDirectory() || includedNames.match(file)))) {
-            LOGGER.log(Level.FINER, "not including {0}", absolutePath);
-            return false;
-        }
-
-        if (ignoredNames.ignore(file)) {
-            LOGGER.log(Level.FINER, "ignoring {0}", absolutePath);
+        if (!pathAccepter.accept(file)) {
             return false;
         }
 
@@ -866,19 +880,20 @@ public class IndexDatabase {
             return true;
         }
 
-        if (HistoryGuru.getInstance().hasHistory(file)) {
-            // versioned files should always be accepted
-            return true;
-        }
 
-        // this is an unversioned file, check if it should be indexed
         RuntimeEnvironment env = RuntimeEnvironment.getInstance();
-        boolean res = !env.isIndexVersionedFilesOnly();
-        if (!res) {
-            LOGGER.log(Level.FINER, "not accepting unversioned {0}",
-                absolutePath);
+        // Lookup history if indexing versioned files only.
+        // Skip the lookup entirely (which is expensive) if unversioned files are allowed
+        if (env.isIndexVersionedFilesOnly()) {
+            if (HistoryGuru.getInstance().hasHistory(file)) {
+                // versioned files should always be accepted
+                return true;
+            }
+            LOGGER.log(Level.FINER, "not accepting unversioned {0}", absolutePath);
+            return false;
         }
-        return res;
+        // unversioned files are allowed
+        return true;
     }
 
     /**
@@ -1254,6 +1269,7 @@ public class IndexDatabase {
                     int tries = 0;
                     Ctags pctags = null;
                     boolean ret;
+                    Statistics stats = new Statistics();
                     while (true) {
                         try {
                             if (alreadyClosedCounter.get() > 0) {
@@ -1293,6 +1309,8 @@ public class IndexDatabase {
                         }
 
                         progress.increment();
+                        stats.report(LOGGER, Level.FINEST,
+                                String.format("file ''%s'' %s", x.file, ret ? "indexed" : "failed indexing"));
                         return ret;
                     }
                 }))).get();
@@ -1648,46 +1666,62 @@ public class IndexDatabase {
         return hash;
     }
 
-    private boolean isXrefWriter(AbstractAnalyzer fa) {
-        AbstractAnalyzer.Genre g = fa.getFactory().getGenre();
-        return (g == AbstractAnalyzer.Genre.PLAIN || g == AbstractAnalyzer.Genre.XREFABLE);
+    private static class CountingWriter extends Writer {
+        private long count;
+        private final Writer out;
+
+        CountingWriter(Writer out) {
+            super(out);
+            this.out = out;
+        }
+
+        @Override
+        public void write(@NotNull char[] chars, int off, int len) throws IOException {
+            out.write(chars, off, len);
+            count += len;
+        }
+
+        @Override
+        public void flush() throws IOException {
+            out.flush();
+        }
+
+        @Override
+        public void close() throws IOException {
+            out.close();
+        }
+
+        public long getCount() {
+            return count;
+        }
+    }
+
+    private String getXrefPath(String path) {
+        boolean compressed = RuntimeEnvironment.getInstance().isCompressXref();
+        File xrefFile = whatXrefFile(path, compressed);
+        File parentFile = xrefFile.getParentFile();
+
+        // If mkdirs() returns false, the failure is most likely
+        // because the file already exists. But to check for the
+        // file first and only add it if it doesn't exists would
+        // only increase the file IO...
+        if (!parentFile.mkdirs()) {
+            assert parentFile.exists();
+        }
+
+        // Write to a pending file for later renaming.
+        String xrefAbs = xrefFile.getAbsolutePath();
+        return xrefAbs;
     }
 
     /**
      * Get a writer to which the xref can be written, or null if no xref
      * should be produced for files of this type.
      */
-    private Writer newXrefWriter(AbstractAnalyzer fa, String path)
-            throws IOException {
-        RuntimeEnvironment env = RuntimeEnvironment.getInstance();
-        if (env.isGenerateHtml() && isXrefWriter(fa)) {
-            boolean compressed = env.isCompressXref();
-            File xrefFile = whatXrefFile(path, compressed);
-            File parentFile = xrefFile.getParentFile();
-
-            // If mkdirs() returns false, the failure is most likely
-            // because the file already exists. But to check for the
-            // file first and only add it if it doesn't exists would
-            // only increase the file IO...
-            if (!parentFile.mkdirs()) {
-                assert parentFile.exists();
-            }
-
-            // Write to a pending file for later renaming.
-            String xrefAbs = xrefFile.getAbsolutePath();
-            File transientXref = new File(TandemPath.join(xrefAbs,
-                PendingFileCompleter.PENDING_EXTENSION));
-            PendingFileRenaming ren = new PendingFileRenaming(xrefAbs,
-                transientXref.getAbsolutePath());
-            completer.add(ren);
-
-            return new BufferedWriter(new OutputStreamWriter(compressed ?
+    private CountingWriter newXrefWriter(String path, File transientXref, boolean compressed) throws IOException {
+        return new CountingWriter(new BufferedWriter(new OutputStreamWriter(compressed ?
                 new GZIPOutputStream(new FileOutputStream(transientXref)) :
-                new FileOutputStream(transientXref)));
-        }
-
-        // no Xref for this analyzer
-        return null;
+                new FileOutputStream(transientXref))));
     }
 
     LockFactory pickLockFactory(RuntimeEnvironment env) {
@@ -1740,7 +1774,7 @@ public class IndexDatabase {
                                   String path) throws IOException {
 
         RuntimeEnvironment env = RuntimeEnvironment.getInstance();
-        boolean outIsXrefWriter = false;
+        boolean outIsXrefWriter = false; // potential xref writer
         int reqTabSize = project != null && project.hasTabSizeSetting() ?
             project.getTabSize() : 0;
         Integer actTabSize = settings.getTabSize();
@@ -1818,7 +1852,7 @@ public class IndexDatabase {
             }
 
             if (fa != null) {
-                outIsXrefWriter = isXrefWriter(fa);
+                outIsXrefWriter = true;
             }
 
             // The versions checks have passed.

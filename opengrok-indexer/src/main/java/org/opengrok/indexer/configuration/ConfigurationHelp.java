@@ -18,9 +18,8 @@
  */
 
 /*
- * Copyright (c) 2018-2019, Chris Fraire <cfraire@me.com>.
+ * Copyright (c) 2018, 2020, Chris Fraire <cfraire@me.com>.
  */
-
 package org.opengrok.indexer.configuration;
 
 import java.lang.annotation.Annotation;
@@ -39,8 +38,6 @@ import org.opengrok.indexer.authorization.AuthControlFlag;
 import org.opengrok.indexer.authorization.AuthorizationPlugin;
 import org.opengrok.indexer.authorization.AuthorizationStack;
 import org.opengrok.indexer.history.RepositoryInfo;
-import org.opengrok.indexer.index.Filter;
-import org.opengrok.indexer.index.IgnoredNames;
 import org.opengrok.indexer.util.StringUtils;
 
 /**
@@ -59,12 +56,10 @@ public class ConfigurationHelp {
      * @return a defined instance
      * @throws RuntimeException if an error occurs producing the sample
      */
-    @SuppressWarnings("rawtypes")
-    public static String getSamples()
-            throws RuntimeException {
+    public static String getSamples() throws RuntimeException {
 
         Configuration conf = new Configuration();
-        Class klass = conf.getClass();
+        Class<?> klass = conf.getClass();
 
         StringBuilder b = new StringBuilder();
         LinesBuilder h = new LinesBuilder();
@@ -116,8 +111,7 @@ public class ConfigurationHelp {
         return b.toString();
     }
 
-    @SuppressWarnings("rawtypes")
-    private static List<Method> getSetters(Class klass) {
+    private static List<Method> getSetters(Class<?> klass) {
         List<Method> res = new ArrayList<>();
         Method[] methods = klass.getDeclaredMethods();
         for (Method mth : methods) {
@@ -132,10 +126,9 @@ public class ConfigurationHelp {
         return res;
     }
 
-    @SuppressWarnings("rawtypes")
     private static Object getSampleValue(Method setter, Object defaultValue) {
 
-        Class paramType = setter.getParameterTypes()[0];
+        Class<?> paramType = setter.getParameterTypes()[0];
         Type genType = setter.getGenericParameterTypes()[0];
 
         if (setter.getName().equals("setBugPattern")) {
@@ -189,6 +182,8 @@ public class ConfigurationHelp {
             return null;
         } else if (paramType == SuggesterConfig.class) {
             return SuggesterConfig.getForHelp();
+        } else if (paramType == StatsdConfig.class) {
+            return StatsdConfig.getForHelp();
         } else {
             throw new UnsupportedOperationException("getSampleValue() for " +
                 paramType + ", " + genType);

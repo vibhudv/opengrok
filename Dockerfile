@@ -14,9 +14,9 @@ COPY opengrok-web/pom.xml /mvn/opengrok-web/
 COPY plugins/pom.xml /mvn/plugins/
 COPY suggester/pom.xml /mvn/suggester/
 
-# distribution and opengrok-tools do not have dependencies to cache
+# distribution and tools do not have dependencies to cache
 RUN sed -i 's:<module>distribution</module>::g' /mvn/pom.xml
-RUN sed -i 's:<module>opengrok-tools</module>::g' /mvn/pom.xml
+RUN sed -i 's:<module>tools</module>::g' /mvn/pom.xml
 
 RUN mkdir -p /mvn/opengrok-indexer/target/jflex-sources
 RUN mkdir -p /mvn/opengrok-web/src/main/webapp
@@ -33,7 +33,7 @@ RUN mvn -DskipTests=true -Dmaven.javadoc.skip=true -B -V package
 RUN cp `ls -t distribution/target/*.tar.gz | head -1` /opengrok.tar.gz
 
 FROM tomcat:9-jdk11
-LABEL maintainer="opengrok-dev@yahoogroups.com"
+LABEL maintainer="https://github.com/oracle/opengrok"
 
 # install dependencies and Python tools
 RUN apt-get update && \
@@ -58,20 +58,12 @@ RUN python3 -m pip install /opengrok/tools/opengrok-tools*
 # environment variables
 ENV SRC_ROOT /opengrok/src
 ENV DATA_ROOT /opengrok/data
-ENV OPENGROK_WEBAPP_CONTEXT /
-ENV OPENGROK_TOMCAT_BASE /usr/local/tomcat
+ENV URL_ROOT /
 ENV CATALINA_HOME /usr/local/tomcat
 ENV CATALINA_BASE /usr/local/tomcat
 ENV CATALINA_TMPDIR /usr/local/tomcat/temp
 ENV PATH $CATALINA_HOME/bin:$PATH
 ENV CLASSPATH /usr/local/tomcat/bin/bootstrap.jar:/usr/local/tomcat/bin/tomcat-juli.jar
-
-# custom deployment to / with redirect from /source
-RUN rm -rf /usr/local/tomcat/webapps/* && \
-    opengrok-deploy -c /opengrok/etc/configuration.xml \
-        /opengrok/lib/source.war /usr/local/tomcat/webapps/ROOT.war && \
-    mkdir "/usr/local/tomcat/webapps/source" && \
-    echo '<% response.sendRedirect("/"); %>' > "/usr/local/tomcat/webapps/source/index.jsp"
 
 # disable all file logging
 ADD docker/logging.properties /usr/local/tomcat/conf/logging.properties

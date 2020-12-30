@@ -18,7 +18,7 @@
  */
 
 /*
- * Copyright (c) 2018 Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2018, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.web.api.v1.controller;
@@ -41,7 +41,7 @@ import org.mockito.MockitoAnnotations;
 import org.opengrok.indexer.configuration.Configuration;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.web.DummyHttpServletRequest;
-import org.opengrok.indexer.web.PageConfig;
+import org.opengrok.web.PageConfig;
 import org.opengrok.web.api.v1.suggester.provider.service.SuggesterService;
 
 public class ConfigurationControllerTest extends OGKJerseyTest {
@@ -242,25 +242,22 @@ public class ConfigurationControllerTest extends OGKJerseyTest {
     @Test
     public void testConfigValueSetVsThread() throws InterruptedException {
         int origValue = env.getHitsPerPage();
-        final int threadValue[] = new int[1];
+        final int[] threadValue = new int[1];
         final CountDownLatch startLatch = new CountDownLatch(1);
         final CountDownLatch endLatch = new CountDownLatch(1);
 
-        Thread thread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                HttpServletRequest req = new DummyHttpServletRequest();
-                PageConfig pageConfig = PageConfig.get(req);
-                RuntimeEnvironment e = pageConfig.getEnv();
-                startLatch.countDown();
-                // Wait for hint of termination, save the value and exit.
-                try {
-                    endLatch.await();
-                } catch (InterruptedException ex) {
-                    ex.printStackTrace();
-                }
-                threadValue[0] = e.getHitsPerPage();
+        Thread thread = new Thread(() -> {
+            HttpServletRequest req = new DummyHttpServletRequest();
+            PageConfig pageConfig = PageConfig.get(req);
+            RuntimeEnvironment e = pageConfig.getEnv();
+            startLatch.countDown();
+            // Wait for hint of termination, save the value and exit.
+            try {
+                endLatch.await();
+            } catch (InterruptedException ex) {
+                ex.printStackTrace();
             }
+            threadValue[0] = e.getHitsPerPage();
         });
 
         thread.start();

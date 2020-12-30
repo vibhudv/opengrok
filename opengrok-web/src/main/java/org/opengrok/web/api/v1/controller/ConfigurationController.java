@@ -18,12 +18,12 @@
  */
 
 /*
- * Copyright (c) 2018, 2019 Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2006, 2019, Oracle and/or its affiliates. All rights reserved.
- * Portions Copyright (c) 2017-2020, Chris Fraire <cfraire@me.com>.
+ * Copyright (c) 2018, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Portions Copyright (c) 2017, 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.web.api.v1.controller;
 
+import org.opengrok.indexer.configuration.CommandTimeoutType;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.util.ClassUtil;
 import org.opengrok.web.api.v1.suggester.provider.service.SuggesterService;
@@ -59,7 +59,7 @@ public class ConfigurationController {
     @PUT
     @Consumes(MediaType.APPLICATION_XML)
     public void set(final String body, @QueryParam("reindex") final boolean reindex) {
-        env.applyConfig(body, reindex, !reindex);
+        env.applyConfig(body, reindex, reindex ? CommandTimeoutType.INDEXER : CommandTimeoutType.RESTFUL);
         suggesterService.refresh();
     }
 
@@ -75,7 +75,7 @@ public class ConfigurationController {
     public void setField(@PathParam("field") final String field, final String value) {
         setConfigurationValueException(field, value);
         // apply the configuration - let the environment reload the configuration if necessary
-        env.applyConfig(false, true);
+        env.applyConfig(false, CommandTimeoutType.RESTFUL);
         suggesterService.refresh();
     }
 

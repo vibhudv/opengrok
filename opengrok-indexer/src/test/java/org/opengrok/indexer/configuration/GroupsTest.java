@@ -17,8 +17,8 @@
  * CDDL HEADER END
  */
 
- /*
- * Copyright (c) 2016, 2018 Oracle and/or its affiliates. All rights reserved.
+/*
+ * Copyright (c) 2016, 2020, Oracle and/or its affiliates. All rights reserved.
  */
 package org.opengrok.indexer.configuration;
 
@@ -51,40 +51,36 @@ public class GroupsTest {
     }
 
     @Test
-    @SuppressWarnings("rawtypes")
     public void testDeleteGroup() {
         Set<Group> groups = cfg.getGroups();
 
         invokeMethod("deleteGroup",
-                new Class[]{Set.class, String.class},
+                new Class<?>[]{Set.class, String.class},
                 new Object[]{groups, "random not existing group"});
 
         Assert.assertEquals(6, cfg.getGroups().size());
 
         invokeMethod("deleteGroup",
-                new Class[]{Set.class, String.class},
+                new Class<?>[]{Set.class, String.class},
                 new Object[]{groups, "apache"});
 
         Assert.assertEquals(5, cfg.getGroups().size());
 
         invokeMethod("deleteGroup",
-                new Class[]{Set.class, String.class},
+                new Class<?>[]{Set.class, String.class},
                 new Object[]{groups, "ctags"});
 
         Assert.assertEquals(1, cfg.getGroups().size());
     }
 
     @Test
-    @SuppressWarnings("rawtypes")
     public void testAddGroup() {
         Set<Group> groups = cfg.getGroups();
-        Group grp;
-
-        grp = findGroup(groups, "new fantastic group");
+        Group grp = findGroup(groups, "new fantastic group");
         Assert.assertNull(grp);
 
         invokeMethod("modifyGroup",
-                new Class[]{Set.class, String.class, String.class, String.class},
+                new Class<?>[]{Set.class, String.class, String.class, String.class},
                 new Object[]{groups, "new fantastic group", "some pattern", null});
 
         Assert.assertEquals(7, groups.size());
@@ -96,19 +92,16 @@ public class GroupsTest {
     }
 
     @Test
-    @SuppressWarnings("rawtypes")
     public void testAddGroupToParent() {
         Set<Group> groups = cfg.getGroups();
-        Group grp;
-
-        grp = findGroup(groups, "apache");
+        Group grp = findGroup(groups, "apache");
         Assert.assertNotNull(grp);
 
         grp = findGroup(groups, "new fantastic group");
         Assert.assertNull(grp);
 
         invokeMethod("modifyGroup",
-                new Class[]{Set.class, String.class, String.class, String.class},
+                new Class<?>[]{Set.class, String.class, String.class, String.class},
                 new Object[]{groups, "new fantastic group", "some pattern", "apache"});
 
         Assert.assertEquals(7, groups.size());
@@ -126,18 +119,15 @@ public class GroupsTest {
     }
 
     @Test
-    @SuppressWarnings("rawtypes")
     public void testModifyGroup() {
         Set<Group> groups = cfg.getGroups();
-        Group grp;
-
-        grp = findGroup(groups, "apache");
+        Group grp = findGroup(groups, "apache");
         Assert.assertNotNull(grp);
         Assert.assertEquals(grp.getName(), "apache");
         Assert.assertEquals(grp.getPattern(), "apache-.*");
 
         invokeMethod("modifyGroup",
-                new Class[]{Set.class, String.class, String.class, String.class},
+                new Class<?>[]{Set.class, String.class, String.class, String.class},
                 new Object[]{groups, "apache", "different pattern", null});
 
         grp = findGroup(groups, "apache");
@@ -165,12 +155,11 @@ public class GroupsTest {
         }
     }
 
-    @SuppressWarnings("rawtypes")
     private void testSingleMatch(Set<Group> groups, int expectedlines, String match) {
         ByteArrayOutputStream os = new ByteArrayOutputStream();
         PrintStream out = new PrintStream(os);
         invokeMethod("matchGroups",
-                new Class[]{PrintStream.class, Set.class, String.class},
+                new Class<?>[]{PrintStream.class, Set.class, String.class},
                 new Object[]{out, groups, match});
 
         String output = os.toString();
@@ -182,8 +171,7 @@ public class GroupsTest {
         );
     }
 
-    @SuppressWarnings("rawtypes")
-    private void invokeMethod(String name, Class[] params, Object[] values) {
+    private void invokeMethod(String name, Class<?>[] params, Object[] values) {
         try {
             Method method = Groups.class.getDeclaredMethod(name, params);
             method.setAccessible(true);
@@ -203,7 +191,7 @@ public class GroupsTest {
         return null;
     }
 
-    final static String BASIC_CONFIGURATION = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    static final String BASIC_CONFIGURATION = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
             + "<java version=\"1.8.0_65\" class=\"java.beans.XMLDecoder\">\n"
             + " <object class=\"org.opengrok.indexer.configuration.Configuration\" id=\"Configuration0\">\n"
             + "    <void method=\"addGroup\">\n"

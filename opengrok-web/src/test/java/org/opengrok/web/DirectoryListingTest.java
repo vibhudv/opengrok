@@ -26,10 +26,12 @@ package org.opengrok.web;
 import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.IOException;
 import java.io.StringWriter;
 import java.nio.file.Files;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -37,16 +39,28 @@ import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
+import org.opengrok.indexer.history.HistoryException;
 import org.opengrok.indexer.history.RepositoryFactory;
+import org.opengrok.indexer.search.DirectoryEntry;
+import org.opengrok.indexer.web.EftarFileReader;
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertTrue;
+import static org.junit.Assert.fail;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.atLeast;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.verify;
 
 /**
- * JUnit test to test that the DirectoryListing produce the expected result
+ * JUnit test to test that the DirectoryListing produce the expected result.
  */
 public class DirectoryListingTest {
 
@@ -70,7 +84,7 @@ public class DirectoryListingTest {
         String href;
         long lastModified;
         /**
-         * May be:
+         * FileEntry size. May be:
          * <pre>
          * positive integer - for a file
          * -2 - for a directory
@@ -216,7 +230,7 @@ public class DirectoryListingTest {
 
     /**
      * Get the href attribute from: &lt;td align="left"&gt;&lt;tt&gt;&lt;a
-     * href="foo" class="p"&gt;foo&lt;/a&gt;&lt;/tt&gt;&lt;/td&gt;
+     * href="foo" class="p"&gt;foo&lt;/a&gt;&lt;/tt&gt;&lt;/td&gt;.
      */
     private String getHref(Node item) {
         Node a = item.getFirstChild(); // a
@@ -232,7 +246,7 @@ public class DirectoryListingTest {
 
     /**
      * Get the filename from: &lt;td align="left"&gt;&lt;tt&gt;&lt;a href="foo"
-     * class="p"&gt;foo&lt;/a&gt;&lt;/tt&gt;&lt;/td&gt;
+     * class="p"&gt;foo&lt;/a&gt;&lt;/tt&gt;&lt;/td&gt;.
      */
     private String getFilename(Node item) {
         Node a = item.getFirstChild(); // a
@@ -255,7 +269,7 @@ public class DirectoryListingTest {
     }
 
     /**
-     * Get the LastModified date from the &lt;td&gt;date&lt;/td&gt;
+     * Get the LastModified date from the &lt;td&gt;date&lt;/td&gt;.
      *
      * @todo fix the item
      * @param item the node representing &lt;td&gt
@@ -274,7 +288,7 @@ public class DirectoryListingTest {
     }
 
     /**
-     * Get the size from the: &lt;td&gt;&lt;tt&gt;size&lt;/tt&gt;&lt;/td&gt;
+     * Get the size from the: &lt;td&gt;&lt;tt&gt;size&lt;/tt&gt;&lt;/td&gt;.
      *
      * @param item the node representing &lt;td&gt;
      * @return positive integer if the record was a file<br>
@@ -297,7 +311,7 @@ public class DirectoryListingTest {
     }
 
     /**
-     * Validate this file-entry in the table
+     * Validate this file-entry in the table.
      *
      * @param element The &lt;tr&gt; element
      * @throws java.lang.Exception
@@ -330,7 +344,7 @@ public class DirectoryListingTest {
     }
 
     /**
-     * Test directory listing
+     * Test directory listing.
      *
      * @throws java.lang.Exception if an error occurs while generating the list.
      */
@@ -361,5 +375,17 @@ public class DirectoryListingTest {
         for (int i = 2; i < len; ++i) {
             validateEntry((Element) nl.item(i));
         }
+    }
+
+    @Test
+    public void directoryListingWithEftarException() throws IOException, HistoryException {
+        EftarFileReader mockReader = mock(EftarFileReader.class);
+        when(mockReader.getNode(anyString())).thenThrow(IOException.class);
+        DirectoryListing instance = new DirectoryListing(mockReader);
+        File file = new File(directory, "foo");
+        StringWriter mockWriter = spy(StringWriter.class);
+        instance.extraListTo("ctx", directory, mockWriter, directory.getPath(),
+                Collections.singletonList(new DirectoryEntry(file)));
+        verify(mockWriter, atLeast(20)).write(anyString());
     }
 }
