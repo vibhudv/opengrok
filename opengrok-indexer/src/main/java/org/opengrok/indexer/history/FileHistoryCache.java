@@ -18,7 +18,7 @@
  */
 
 /*
- * Copyright (c) 2008, 2019, Oracle and/or its affiliates. All rights reserved.
+ * Copyright (c) 2008, 2021, Oracle and/or its affiliates. All rights reserved.
  * Portions Copyright (c) 2018, 2020, Chris Fraire <cfraire@me.com>.
  */
 package org.opengrok.indexer.history;
@@ -60,6 +60,7 @@ import org.opengrok.indexer.configuration.RuntimeEnvironment;
 import org.opengrok.indexer.logger.LoggerFactory;
 import org.opengrok.indexer.util.ForbiddenSymlinkException;
 import org.opengrok.indexer.util.IOUtils;
+import org.opengrok.indexer.util.Statistics;
 import org.opengrok.indexer.util.TandemPath;
 
 /**
@@ -90,7 +91,7 @@ class FileHistoryCache implements HistoryCache {
     }
 
     /**
-     * Generate history for single file.
+     * Generate history cache for single file or directory.
      * @param filename name of the file
      * @param historyEntries list of HistoryEntry objects forming the (incremental) history of the file
      * @param repository repository object in which the file belongs
@@ -108,6 +109,8 @@ class FileHistoryCache implements HistoryCache {
             LOGGER.log(Level.FINE, "Not storing history cache for {0}: not top level directory", file);
             return;
         }
+
+        Statistics statRepoHist = new Statistics();
 
         /*
          * If the file was renamed (in the changesets that are being indexed),
@@ -138,6 +141,10 @@ class FileHistoryCache implements HistoryCache {
         }
 
         storeFile(hist, file, repository, !renamed);
+
+        statRepoHist.report(LOGGER, Level.FINER,
+                String.format("Done storing history cache for '%s'", filename),
+                "filehistorycache.history");
     }
 
     private boolean isRenamedFile(String filename, Repository repository, History history)

@@ -24,6 +24,7 @@
 package org.opengrok.indexer.configuration;
 
 import static org.opengrok.indexer.configuration.Configuration.makeXMLStringAsConfiguration;
+import static org.opengrok.indexer.index.IndexerUtil.getWebAppHeaders;
 
 import java.io.File;
 import java.io.FileNotFoundException;
@@ -50,9 +51,10 @@ import java.util.function.Function;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
-import javax.ws.rs.client.ClientBuilder;
-import javax.ws.rs.client.Entity;
-import javax.ws.rs.core.Response;
+
+import jakarta.ws.rs.client.ClientBuilder;
+import jakarta.ws.rs.client.Entity;
+import jakarta.ws.rs.core.Response;
 import org.apache.lucene.index.IndexReader;
 import org.apache.lucene.index.MultiReader;
 import org.apache.lucene.search.SearcherManager;
@@ -1418,6 +1420,7 @@ public final class RuntimeEnvironment {
                 .path("configuration")
                 .queryParam("reindex", true)
                 .request()
+                .headers(getWebAppHeaders())
                 .put(Entity.xml(configXML));
 
         if (r.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
@@ -1444,6 +1447,7 @@ public final class RuntimeEnvironment {
                     .path("system")
                     .path("refresh")
                     .request()
+                    .headers(getWebAppHeaders())
                     .put(Entity.text(project));
 
             if (r.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL) {
@@ -1948,12 +1952,28 @@ public final class RuntimeEnvironment {
         return syncReadConfiguration(Configuration::getMessageLimit);
     }
 
+    public String getIndexerAuthenticationToken() {
+        return syncReadConfiguration(Configuration::getIndexerAuthenticationToken);
+    }
+
+    public void setIndexerAuthenticationToken(String token) {
+        syncWriteConfiguration(token, Configuration::setIndexerAuthenticationToken);
+    }
+
     public Set<String> getAuthenticationTokens() {
         return Collections.unmodifiableSet(syncReadConfiguration(Configuration::getAuthenticationTokens));
     }
 
     public void setAuthenticationTokens(Set<String> tokens) {
         syncWriteConfiguration(tokens, Configuration::setAuthenticationTokens);
+    }
+
+    public boolean isAllowInsecureTokens() {
+        return syncReadConfiguration(Configuration::isAllowInsecureTokens);
+    }
+
+    public void setAllowInsecureTokens(boolean value) {
+        syncWriteConfiguration(value, Configuration::setAllowInsecureTokens);
     }
 
     public void registerListener(ConfigurationChangedListener listener) {

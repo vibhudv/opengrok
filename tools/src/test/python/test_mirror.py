@@ -20,7 +20,7 @@
 #
 
 #
-# Copyright (c) 2019, 2020, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2019, 2021, Oracle and/or its affiliates. All rights reserved.
 # Portions Copyright (c) 2020, Krystof Tulinger <k.tulinger@seznam.cz>
 #
 
@@ -135,8 +135,11 @@ def test_disabled_command_api():
     Test that mirror_project() calls call_rest_api() if API
     call is specified in the configuration for disabled project.
     """
+    def mock_call_rest_api(command, b, http_headers=None):
+        return mock(spec=requests.Response)
+
     with patch(opengrok_tools.utils.mirror.call_rest_api,
-               lambda a, b, c: mock(spec=requests.Response)):
+               mock_call_rest_api):
         project_name = "foo"
         config = {
             DISABLED_CMD_PROPERTY: {
@@ -153,7 +156,8 @@ def test_disabled_command_api():
                               None, None) == CONTINUE_EXITVAL
         verify(opengrok_tools.utils.mirror). \
             call_rest_api(config.get(DISABLED_CMD_PROPERTY),
-                          PROJECT_SUBST, project_name)
+                          {PROJECT_SUBST: project_name},
+                          http_headers=None)
 
 
 def test_disabled_command_api_text_append(monkeypatch):
@@ -163,7 +167,7 @@ def test_disabled_command_api_text_append(monkeypatch):
 
     text_to_append = "foo bar"
 
-    def mock_call_rest_api(command, b, c):
+    def mock_call_rest_api(command, b, http_headers=None):
         disabled_command = config.get(DISABLED_CMD_PROPERTY)
         assert disabled_command
         command_args = disabled_command.get(COMMAND_PROPERTY)
@@ -308,10 +312,10 @@ def test_get_repos_for_project(monkeypatch):
     timeout = 314159
     test_repo = "/" + project_name
 
-    def mock_get_repos(*args):
+    def mock_get_repos(*args, headers=None):
         return [test_repo]
 
-    def mock_get_repo_type(*args):
+    def mock_get_repo_type(*args, headers=None):
         return "Git"
 
     with tempfile.TemporaryDirectory() as source_root:

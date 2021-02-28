@@ -24,25 +24,29 @@
 package org.opengrok.web;
 
 import io.micrometer.core.instrument.Timer;
+import jakarta.servlet.ServletContext;
+import jakarta.servlet.ServletContextEvent;
+import jakarta.servlet.ServletContextListener;
+import jakarta.servlet.ServletRequestEvent;
+import jakarta.servlet.ServletRequestListener;
 import org.opengrok.indexer.Info;
 import org.opengrok.indexer.Metrics;
 import org.opengrok.indexer.analysis.AnalyzerGuru;
 import org.opengrok.indexer.authorization.AuthorizationFramework;
 import org.opengrok.indexer.configuration.CommandTimeoutType;
+import org.opengrok.indexer.configuration.Project;
 import org.opengrok.indexer.configuration.RuntimeEnvironment;
+import org.opengrok.indexer.index.IndexCheck;
+import org.opengrok.indexer.index.IndexDatabase;
 import org.opengrok.indexer.logger.LoggerFactory;
 import org.opengrok.indexer.web.SearchHelper;
 import org.opengrok.web.api.v1.suggester.provider.service.SuggesterServiceFactory;
 
-import javax.servlet.ServletContext;
-import javax.servlet.ServletContextEvent;
-import javax.servlet.ServletContextListener;
-import javax.servlet.ServletRequestEvent;
-import javax.servlet.ServletRequestListener;
 import java.io.File;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Map;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -100,8 +104,44 @@ public final class WebappListener
             env.watchDog.start(new File(pluginDirectory));
         }
 
+        // Check index(es).
+        check_index(env);
+
         env.startExpirationTimer();
         startupTimer.record(Duration.between(start, Instant.now()));
+    }
+
+    /**
+     * Checks the index(es). If projects are enabled then each project with invalid index
+     * is marked as not being indexed.
+     * @param env runtime environment
+     */
+    private void check_index(RuntimeEnvironment env) {
+        if (env.isProjectsEnabled()) {
+            LOGGER.log(Level.FINE, "Checking indexes for all projects");
+            Map<String, Project> projects = env.getProjects();
+            File indexRoot = new File(env.getDataRootPath(), IndexDatabase.INDEX_DIR);
+            if (indexRoot.exists()) {
+                for (String projectName : projects.keySet()) {
+                    try {
+                        IndexCheck.checkDir(new File(indexRoot, projectName));
+                    } catch (Exception e) {
+                        LOGGER.log(Level.WARNING,
+                                String.format("Project %s index check failed, marking as not indexed", projectName), e);
+                        projects.get(projectName).setIndexed(false);
+                    }
+                }
+            }
+            LOGGER.log(Level.FINE, "Index check for all projects done");
+        } else {
+            LOGGER.log(Level.FINE, "Checking index");
+            try {
+                IndexCheck.checkDir(new File(env.getDataRootPath(), IndexDatabase.INDEX_DIR));
+            } catch (Exception e) {
+                LOGGER.log(Level.SEVERE, "index check failed", e);
+            }
+            LOGGER.log(Level.FINE, "Index check done");
+        }
     }
 
     /**

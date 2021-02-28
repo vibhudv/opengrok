@@ -20,7 +20,7 @@
 #
 
 #
-# Copyright (c) 2019, 2020, Oracle and/or its affiliates. All rights reserved.
+# Copyright (c) 2019, 2021, Oracle and/or its affiliates. All rights reserved.
 #
 
 import pytest
@@ -62,7 +62,7 @@ def test_replacement(monkeypatch):
         with monkeypatch.context() as m:
             m.setattr("opengrok_tools.utils.restful.do_api_call",
                       mock_response)
-            assert call_rest_api(command, pattern, value). \
+            assert call_rest_api(command, {pattern: value}). \
                 status_code == okay_status
 
 
@@ -72,12 +72,12 @@ def test_unknown_verb():
     pattern = "%FOO%"
     value = "BAR"
     with pytest.raises(Exception):
-        call_rest_api(command, pattern, value)
+        call_rest_api(command, {pattern: value})
 
 
-def test_headers(monkeypatch):
+def test_content_type(monkeypatch):
     """
-    Test HTTP header handling.
+    Test HTTP Content-type header handling.
     """
     for verb in ["PUT", "POST", "DELETE"]:
         text_plain_header = {CONTENT_TYPE: 'text/plain'}
@@ -95,7 +95,29 @@ def test_headers(monkeypatch):
             with monkeypatch.context() as m:
                 m.setattr("opengrok_tools.utils.restful.do_api_call",
                           mock_response)
-                call_rest_api(command, None, None)
+                call_rest_api(command)
+
+
+def test_headers(monkeypatch):
+    """
+    Test that HTTP headers from command specification are united with
+    HTTP headers passed to call_res_api()
+    :param monkeypatch: monkey fixture
+    """
+    headers = {'Tatsuo': 'Yasuko'}
+    command = {"command": ["http://localhost:8080/source/api/v1/bar",
+                           'GET', "data", headers]}
+    extra_headers = {'Mei': 'Totoro'}
+
+    def mock_response(uri, verb, headers, data):
+        all_headers = headers
+        all_headers.update(extra_headers)
+        assert headers == all_headers
+
+    with monkeypatch.context() as m:
+        m.setattr("opengrok_tools.utils.restful.do_api_call",
+                  mock_response)
+        call_rest_api(command, http_headers=extra_headers)
 
 
 def test_restful_fail(monkeypatch):
@@ -113,20 +135,18 @@ def test_restful_fail(monkeypatch):
     with monkeypatch.context() as m:
         m.setattr("requests.put", mock_response)
         with pytest.raises(HTTPError):
-            call_rest_api({'command': ['http://foo', 'PUT', 'data']},
-                          None, None)
+            call_rest_api({'command': ['http://foo', 'PUT', 'data']})
 
 
 def test_invalid_command_negative():
     with pytest.raises(Exception):
-        call_rest_api(None, None, None)
+        call_rest_api(None)
 
     with pytest.raises(Exception):
-        call_rest_api({"foo": "bar"}, None, None)
+        call_rest_api({"foo": "bar"})
 
     with pytest.raises(Exception):
-        call_rest_api(["foo", "bar"], None, None)
+        call_rest_api(["foo", "bar"])
 
     with pytest.raises(Exception):
-        call_rest_api({COMMAND_PROPERTY: ["foo", "PUT", "data", "headers"]},
-                      None, None)
+        call_rest_api({COMMAND_PROPERTY: ["foo", "PUT", "data", "headers"]})

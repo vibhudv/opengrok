@@ -28,13 +28,15 @@ image based on the official one.
 
 ## Additional info about the image
 
-* Tomcat 9
+* Tomcat 10
 * JRE 11
 * Configurable mirroring/reindexing (default every 10 min)
 
 The mirroring step works by going through all projects and attempting to
-synchronize all its repositories (e.g. it will do `git pull` for Git
+synchronize all its repositories (e.g. it will do `git pull --ff-only` for Git
 repositories).
+
+Projects are enabled in this setup and there is no way how to change that.
 
 ### Indexer logs
 
@@ -77,6 +79,7 @@ The volume mounted to `/opengrok/src` should contain the projects you want to ma
 `INDEXER_OPT` | empty | pass extra options to OpenGrok Indexer. For example, `-i d:vendor` will remove all the `*/vendor/*` files from the index. You can check the indexer options on https://github.com/oracle/opengrok/wiki/Python-scripts-transition-guide
 `NOMIRROR` | empty | To avoid the mirroring step, set the variable to non-empty value.
 `URL_ROOT` | `/` | Override the sub-URL that OpenGrok should run on.
+`WORKERS` | number of CPUs in the container | number of workers to use for syncing
 
 To specify environment variable for `docker run`, use the `-e` option, e.g. `-e REINDEX=30`
 

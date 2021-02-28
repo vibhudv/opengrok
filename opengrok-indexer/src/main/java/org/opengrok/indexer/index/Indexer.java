@@ -24,8 +24,11 @@
  */
 package org.opengrok.indexer.index;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStreamReader;
 import java.io.PrintStream;
 import java.io.UncheckedIOException;
 import java.lang.reflect.Field;
@@ -72,7 +75,6 @@ import org.opengrok.indexer.history.RepositoriesHelp;
 import org.opengrok.indexer.history.Repository;
 import org.opengrok.indexer.history.RepositoryFactory;
 import org.opengrok.indexer.history.RepositoryInfo;
-import org.opengrok.indexer.index.IndexVersion.IndexVersionException;
 import org.opengrok.indexer.logger.LoggerFactory;
 import org.opengrok.indexer.logger.LoggerUtil;
 import org.opengrok.indexer.util.CtagsUtil;
@@ -112,7 +114,7 @@ public final class Indexer {
 
     private static final Indexer index = new Indexer();
     private static Configuration cfg = null;
-    private static boolean checkIndexVersion = false;
+    private static boolean checkIndex = false;
     private static boolean runIndex = true;
     private static boolean optimizedChanged = false;
     private static boolean addProjects = false;
@@ -253,22 +255,19 @@ public final class Indexer {
 
             // Check version of index(es) versus current Lucene version and exit
             // with return code upon failure.
-            if (checkIndexVersion) {
+            if (checkIndex) {
                 if (cfg == null) {
-                    System.err.println("Need configuration to check index version (use -R)");
+                    System.err.println("Need configuration to check index (use -R)");
                     System.exit(1);
                 }
 
-                try {
-                    IndexVersion.check(subFilesList);
-                } catch (IndexVersionException e) {
-                    System.err.printf("Index version check failed: %s\n", e);
+                if (!IndexCheck.check(subFilesList)) {
+                    System.err.printf("Index check failed\n");
                     System.err.print("You might want to remove " +
                             (subFilesList.size() > 0 ?
                                     "data for projects " + String.join(",", subFilesList) : "all data") +
-                            " under the DATA_ROOT and to reindex\n");
-                    status = 1;
-                    System.exit(status);
+                            " under the data root and reindex\n");
+                    System.exit(1);
                 }
             }
 
@@ -505,9 +504,7 @@ public final class Indexer {
                 canonicalRoots.add(root);
             });
 
-            parser.on("--checkIndexVersion",
-                    "Check if current Lucene version matches index version.").execute(v ->
-                    checkIndexVersion = true);
+            parser.on("--checkIndex", "Check index.").execute(v -> checkIndex = true);
 
             parser.on("-d", "--dataRoot", "=/path/to/data/root",
                 "The directory where OpenGrok stores the generated data.").
@@ -766,6 +763,24 @@ public final class Indexer {
             parser.on("-t", "--tabSize", "=number", Integer.class,
                 "Default tab size to use (number of spaces per tab character).")
                     .execute(tabSize -> cfg.setTabSize((Integer) tabSize));
+
+            parser.on("--token", "=string|@file_with_string",
+                    "Authorization bearer API token to use when making API calls",
+                    "to the web application").
+                    execute(optarg -> {
+                        String value = ((String) optarg).trim();
+                        if (value.startsWith("@")) {
+                            try (BufferedReader in = new BufferedReader(new InputStreamReader(
+                                    new FileInputStream(Path.of(value).toString().substring(1))))) {
+                                String token = in.readLine().trim();
+                                cfg.setIndexerAuthenticationToken(token);
+                            } catch (IOException e) {
+                                die("Failed to read from " + value);
+                            }
+                        } else {
+                            cfg.setIndexerAuthenticationToken(value);
+                        }
+                    });
 
             parser.on("-U", "--uri", "=SCHEME://webappURI:port/contextPath",
                 "Send the current configuration to the specified web application.").execute(webAddr -> {

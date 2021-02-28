@@ -28,11 +28,11 @@ Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
     <parent>
         <groupId>org.opengrok</groupId>
         <artifactId>opengrok-top</artifactId>
-        <version>1.5.11</version>
+        <version>1.5.12</version>
     </parent>
 
     <artifactId>plugins</artifactId>
-    <version>1.5.11</version>
+    <version>1.5.12</version>
     <packaging>jar</packaging>
 
     <name>OpenGrok authorization plugins</name>
@@ -51,8 +51,8 @@ Portions Copyright (c) 2020, Chris Fraire <cfraire@me.com>.
             <scope>test</scope>
         </dependency>
         <dependency>
-            <groupId>javax.servlet</groupId>
-            <artifactId>javax.servlet-api</artifactId>
+            <groupId>jakarta.servlet</groupId>
+            <artifactId>jakarta.servlet-api</artifactId>
         </dependency>
         <dependency>
             <groupId>org.junit.jupiter</groupId>

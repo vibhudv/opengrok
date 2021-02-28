@@ -63,7 +63,8 @@ DISABLED_CMD_PROPERTY = 'disabled_command'
 
 def get_repos_for_project(project_name, uri, source_root,
                           ignored_repos=None,
-                          commands=None, proxy=None, command_timeout=None):
+                          commands=None, proxy=None, command_timeout=None,
+                          headers=None):
     """
     :param project_name: project name
     :param uri: web application URI
@@ -73,13 +74,14 @@ def get_repos_for_project(project_name, uri, source_root,
     :param proxy: dictionary of proxy servers - to be used as environment
                   variables
     :param command_timeout: command timeout value in seconds
+    :param headers: optional HTTP headers dictionary
     :return: list of Repository objects
     """
 
     logger = logging.getLogger(__name__)
 
     repos = []
-    for repo_path in get_repos(logger, project_name, uri):
+    for repo_path in get_repos(logger, project_name, uri, headers=headers):
         logger.debug("Repository path = {}".format(repo_path))
 
         if ignored_repos:
@@ -89,7 +91,7 @@ def get_repos_for_project(project_name, uri, source_root,
                 logger.info("repository {} ignored".format(repo_path))
                 continue
 
-        repo_type = get_repo_type(logger, repo_path, uri)
+        repo_type = get_repo_type(logger, repo_path, uri, headers=headers)
         if not repo_type:
             raise RepositoryException("cannot determine type of repository {}".
                                       format(repo_path))
@@ -241,10 +243,11 @@ def process_hook(hook_ident, hook, source_root, project_name, proxy,
     return True
 
 
-def process_changes(repos, project_name, uri):
+def process_changes(repos, project_name, uri, headers=None):
     """
     :param repos: repository list
     :param project_name: project name
+    :param headers: optional dictionary of HTTP headers
     :return: exit code
     """
     logger = logging.getLogger(__name__)
@@ -255,7 +258,8 @@ def process_changes(repos, project_name, uri):
     try:
         r = do_api_call('GET', get_uri(uri, 'api', 'v1', 'projects',
                                        urllib.parse.quote_plus(project_name),
-                                       'property', 'indexed'))
+                                       'property', 'indexed'),
+                        headers=headers)
         if not bool(r.json()):
             changes_detected = True
             logger.info('Project {} has not been indexed yet'
@@ -303,7 +307,7 @@ def run_command(cmd, project_name):
                             cmd.getoutputstr()))
 
 
-def handle_disabled_project(config, project_name, disabled_msg):
+def handle_disabled_project(config, project_name, disabled_msg, headers=None):
     disabled_command = config.get(DISABLED_CMD_PROPERTY)
     if disabled_command:
         logger = logging.getLogger(__name__)
@@ -325,7 +329,8 @@ def handle_disabled_project(config, project_name, disabled_msg):
                 command_args[2]["text"] = text + ": " + disabled_msg
 
             try:
-                call_rest_api(disabled_command, PROJECT_SUBST, project_name)
+                call_rest_api(disabled_command, {PROJECT_SUBST: project_name},
+                              http_headers=headers)
             except HTTPError as e:
                 logger.error("API call failed for disabled command of "
                              "project '{}': {}".
@@ -344,7 +349,7 @@ def handle_disabled_project(config, project_name, disabled_msg):
 
 
 def mirror_project(config, project_name, check_changes, uri,
-                   source_root):
+                   source_root, headers=None):
     """
     Mirror the repositories of single project.
     :param config global configuration dictionary
@@ -380,7 +385,8 @@ def mirror_project(config, project_name, check_changes, uri,
         if project_config.get(DISABLED_PROPERTY):
             handle_disabled_project(config, project_name,
                                     project_config.
-                                    get(DISABLED_REASON_PROPERTY))
+                                    get(DISABLED_REASON_PROPERTY),
+                                    headers=headers)
             logger.info("Project '{}' disabled, exiting".
                         format(project_name))
             return CONTINUE_EXITVAL
@@ -396,7 +402,8 @@ def mirror_project(config, project_name, check_changes, uri,
                                   commands=config.
                                   get(COMMANDS_PROPERTY),
                                   proxy=proxy,
-                                  command_timeout=command_timeout)
+                                  command_timeout=command_timeout,
+                                  headers=headers)
     if not repos:
         logger.info("No repositories for project {}".
                     format(project_name))
@@ -404,7 +411,7 @@ def mirror_project(config, project_name, check_changes, uri,
 
     # Check if the project or any of its repositories have changed.
     if check_changes:
-        r = process_changes(repos, project_name, uri)
+        r = process_changes(repos, project_name, uri, headers=headers)
         if r != SUCCESS_EXITVAL:
             return r
 
